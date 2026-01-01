@@ -1,4 +1,4 @@
-from PySide6.QtWidgets import QApplication,QMainWindow,QMenuBar,QVBoxLayout,QStatusBar,QFileDialog,QWidget,QMessageBox,QTableWidget,QPushButton,QTableWidgetItem
+from PySide6.QtWidgets import QApplication,QMainWindow,QVBoxLayout,QFileDialog,QWidget,QMessageBox,QTableWidget,QPushButton,QTableWidgetItem,QTextEdit,QCheckBox,QLabel,QHBoxLayout,QGroupBox
 import PySide6.QtCore
 from PySide6.QtGui import QAction
 from database import DatabaseManager
@@ -19,6 +19,12 @@ class StatCalculator(QMainWindow):
         self.table.horizontalHeader().setVisible(True)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.verticalHeader().setVisible(False)
+        self.create_calculation_panel()
+        self.CalculateButton()
+        self.results_text = QTextEdit()
+        self.results_text.setReadOnly(True)
+        self.results_text.setPlaceholderText("results will appear here")
+        self.layout.addWidget(self.results_text)
 
         self.data = None
         self.currentDatasedtId = None
@@ -29,6 +35,7 @@ class StatCalculator(QMainWindow):
         self.create_statusbar()
 
         self.dataManager = DatabaseManager()
+
 
 
     def create_menubar(self):
@@ -161,6 +168,39 @@ class StatCalculator(QMainWindow):
         self.currentDatasedtId = None
         self.statusbar.showMessage('data cleared')
 
+    def create_calculation_panel(self):
+        self.select_calculations = QGroupBox('select calculations')
+        calcLayout = QVBoxLayout()
+
+        self.calc_checkboxes = {}
+        calculations = [
+            'Mean',
+            'Median',
+            'Mode',
+            'Strandard Deviation',
+            'Variance',
+            'Min',
+            'Max',
+            'Count'
+        ]
+
+        for calc in calculations:
+            checkbox = QCheckBox(calc)
+            self.calc_checkboxes[calc] = checkbox
+            calcLayout.addWidget(checkbox)
+
+        self.select_calculations.setLayout(calcLayout)
+
+        self.layout.addWidget(self.select_calculations)
+
+    def CalculateButton(self):
+        self.Cbutton = QPushButton('Calculate')
+        self.Cbutton.clicked.connect(self.run_calculations)
+        self.Cbutton.setEnabled(False)
+        self.layout.addWidget(self.Cbutton)
+
+    def run_calculations(self):
+        print('doing calculations')
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
