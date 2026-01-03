@@ -21,6 +21,7 @@ class StatCalculator(QMainWindow):
         self.current_dataset_id = None
         self.dataManager = DatabaseManager()
         self.fileName = None
+        self.original_data = None
 
         # Setup UI
         self.setWindowTitle("Statistical Calculator")
@@ -79,6 +80,10 @@ class StatCalculator(QMainWindow):
         main_layout.addLayout(left_layout, 3)
         main_layout.addLayout(right_layout, 1)
 
+        #data handling panel
+        self.create_cleaning_panel()
+        right_layout.addWidget(self.data_cleaning)
+
         self.setCentralWidget(container)
 
     def create_calculation_panel(self):
@@ -112,7 +117,7 @@ class StatCalculator(QMainWindow):
 
     def toggle_all_calculations(self, state):
         """Select or deselect all calculation checkboxes"""
-        checked = (state == Qt.Checked)
+        checked = (state != Qt.Checked)
         for checkbox in self.calc_checkboxes.values():
             checkbox.setChecked(checked)
 
@@ -203,6 +208,7 @@ class StatCalculator(QMainWindow):
             QMessageBox.critical(self, "Error", error_msg)
             self.data = None
             return
+        self.original_data = self.data.copy()
 
     def display_data_in_table(self, dataframe, max_rows=1000):
         """Display DataFrame in table widget"""
@@ -368,6 +374,53 @@ class StatCalculator(QMainWindow):
         """Handle window close event"""
         self.dataManager.close()
         event.accept()
+
+    def create_cleaning_panel(self):
+        self.data_cleaning = QGroupBox("data cleaning")
+        cleaning_layout = QHBoxLayout()
+        show_data = QPushButton("Show Data")
+        show_data.clicked.connect(self.showData)
+        missing_values = QPushButton("Handle Missing Values")
+        missing_values.clicked.connect(self.missingValues)
+        R_duplicates = QPushButton("Remove Duplicates")
+        R_duplicates.clicked.connect(self.removeDups)
+        cleaning_layout.addWidget(show_data)
+        cleaning_layout.addWidget(R_duplicates)
+        cleaning_layout.addWidget(missing_values)
+        self.data_cleaning.setLayout(cleaning_layout)
+
+    def showData(self):
+        if self.data is None:
+            QMessageBox.warning(self, "No Data", "Please load data first!")
+            return
+        rows, cols = self.data.shape
+        column_type = self.data.dtypes
+        null_values = self.data.isnull().sum()
+        dups_values = self.data.duplicated().sum()
+
+        infos = []
+        infos.append("=== Data Information ===")
+        infos.append(f'dataset : {self.fileName}')
+        infos.append(f'total rows : {rows}')
+        infos.append(f'total columns : {cols}')
+        infos.append("--- Column Information ---")
+        for col in self.data.columns :
+            infos.append(
+                f"{col} | "
+                f"type={column_type[col]} | "
+                f"nulls={null_values[col]} | "
+            )
+        infos.append("--- Data Quality ---")
+        infos.append(f'total missing values : {null_values.sum()}')
+        infos.append(f'duplicated rows : {dups_values}')
+        self.results_text.setText("\n".join(infos))
+
+
+
+    def missingValues(self):
+        print("missing values")
+    def removeDups(self):
+        print("dups")
 
 
 if __name__ == "__main__":
