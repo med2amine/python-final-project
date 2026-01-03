@@ -418,10 +418,77 @@ class StatCalculator(QMainWindow):
 
 
     def missingValues(self):
-        print("missing values")
-    def removeDups(self):
-        print("dups")
+        nulls = self.data.isnull().sum().sum()
+        if nulls == 0:
+            self.results_text.setText("there is no data missing")
+            return
+        options = QMessageBox()
+        options.setWindowTitle("missing values")
+        options.setText("choose how to handle missing values")
 
+        btn_remove = options.addButton("remove",QMessageBox.ActionRole)
+        btn_mean = options.addButton("fill with mean",QMessageBox.ActionRole)
+        btn_median = options.addButton("fill with median",QMessageBox.ActionRole)
+        btn_mode = options.addButton("fill with mode",QMessageBox.ActionRole)
+        btn_cancel = options.addButton("cancel",QMessageBox.ActionRole)
+        options.exec()
+
+        clicked = options.clickedButton()
+        if clicked == btn_remove:
+            self.data.dropna(inplace = True)
+            self.results_text.setText("rows with missing data removed")
+        elif clicked == btn_mean:
+            self.data.fillna(self.data.mean(numeric_only = True),inplace = True)
+            self.results_text.setText("missing data filled with mean")
+        elif clicked == btn_median:
+            self.data.fillna(self.data.median(numeric_only = True),inplace = True)
+            self.results_text.setText("missing data filled with median")
+        elif clicked == btn_mode:
+            self.data.fillna(self.data.mode().iloc[0],inplace = True)
+            self.results_text.setText("missing data filled with mode")
+        else:
+            self.results_text.setText("operation cancelled")
+
+
+
+    def removeDups(self):
+        Brows,Bcols = self.data.shape
+        dups = self.data.duplicated().sum()
+        if dups == 0:
+            self.results_text.setText("no duplicated rows found")
+            return
+
+        remove = QMessageBox()
+        remove.setWindowTitle("remove duplicates")
+        remove.setText("do you want to remove duplicates")
+
+        yes_btn = remove.addButton("YES",QMessageBox.ActionRole)
+        no_btn = remove.addButton("NO",QMessageBox.ActionRole)
+
+        remove.exec()
+        clicked = remove.clickedButton()
+
+        if clicked == yes_btn:
+            self.data.drop_duplicates(inplace = True)
+            self.results_text.setText("duplicate rows removed")
+        else:
+            self.results_text.setText("action cancelled")
+
+        Arows,Acols = self.data.shape
+
+        self.results_text.setText(
+            "=== DATA CLEANING APPLIED ===\n"
+            "Action : removed rows with missing values\n"
+            "Before : \n"
+            f"Rows : {Brows}\n"
+            f"Columns : {Bcols}\n"
+            f"Missing values : {dups}\n"
+            "After : \n"
+            f"Rows : {Arows} ({Brows-Arows} rows removed)\n"
+            f"Columns : {Acols}\n"
+            "Missing values : 0\n"
+            "Data updated successfully"
+        )
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
