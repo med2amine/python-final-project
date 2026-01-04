@@ -2,11 +2,12 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QFileDialog, QWidget,
     QMessageBox, QTableWidget, QPushButton, QTableWidgetItem,
     QTextEdit, QCheckBox, QLabel, QHBoxLayout, QGroupBox,QTabWidget,
-    QRadioButton,QComboBox,QDoubleSpinBox,QInputDialog
+    QRadioButton,QComboBox,QDoubleSpinBox,QInputDialog,QDialog,QListWidget,
+    QDialogButtonBox
+
 )
 from PySide6.QtGui import QAction
 from PySide6.QtCore import Qt
-from cgitb import reset
 from database import DatabaseManager
 import sys
 import pandas as pd
@@ -107,7 +108,7 @@ class StatCalculator(QMainWindow):
 
         self.test_results_text = QTextEdit()
         self.test_results_text.setReadOnly(True)
-        self.test_results_text.setPllaceholderText("Test results will appear here")
+        self.test_results_text.setPlaceholderText("Test results will appear here")
         test_layout.addWidget(self.test_results_text)
 
         test_layout.addStretch()
@@ -707,9 +708,9 @@ class StatCalculator(QMainWindow):
         column_layout = QVBoxLayout()
 
         column_layout.addWidget(QLabel("Column 1: "))
-        self.colmun1_combo = QComboBox()
-        self.colmun1_combo.setEnabled(False)
-        column_layout.addWidget(self.colmun1_combo)
+        self.column1_combo = QComboBox()
+        self.column1_combo.setEnabled(False)
+        column_layout.addWidget(self.column1_combo)
 
         column_layout.addWidget(QLabel("Column 2: "))
         self.column2_combo = QComboBox()
@@ -743,8 +744,34 @@ class StatCalculator(QMainWindow):
 
         self.test_panel.setLayout(test_layout)
 
+        self.OneT_test.toggled.connect(self.update_column_selection)
+        self.TwoT_test.toggled.connect(self.update_column_selection)
+        self.PairedT_test.toggled.connect(self.update_column_selection)
+        self.Chi2_test.toggled.connect(self.update_column_selection)
+        self.Anova.toggled.connect(self.update_column_selection)
+
     def alpha_changed(self,value):
         self.alpha = value
+
+    def update_column_selection(self):
+        has_data = self.data is not None
+
+        if self.OneT_test.isChecked():
+            self.column1_combo.setEnabled(has_data)
+            self.column2_combo.setEnabled(False)
+
+        elif self.TwoT_test.isChecked() or self.PairedT_test.isChecked():
+            self.column1_combo.setEnabled(has_data)
+            self.column2_combo.setEnabled(has_data)
+
+        elif self.Chi2_test.isChecked():
+            self.column1_combo.setEnabled(has_data)
+            self.column2_combo.setEnabled(has_data)
+
+        elif self.Anova.isChecked():
+
+            self.column1_combo.setEnabled(False)
+            self.column2_combo.setEnabled(False)
 
     def run_test(self):
         if self.data is None :
@@ -763,7 +790,7 @@ class StatCalculator(QMainWindow):
             self.run_anova_test()
 
     def run_one_sample_ttest(self):
-        column_name = self.colmun1_combo.currentText()
+        column_name = self.column1_combo.currentText()
 
         if not column_name:
             QMessageBox().warning(self,"No column","Please select a column")
@@ -816,11 +843,503 @@ class StatCalculator(QMainWindow):
             results.append(f"Degree of freedom : {len(data) - 1}")
             results.append("")
 
+            if p_value<self.alpha:
+                results.append("--- Interpretation ---")
+                results.append("STATISTICALLY SIGNIFICANT (p<α)")
+                results.append("")
+                results.append("Decision : Reject the null hypothesis")
+                results.append(f"Conclusion : the sample mean ({data.mean():.4f}) is")
+                results.append(f"significantly different from the population mean ({test_value})")
+            else:
+                results.append("--- Interpretation ---")
+                results.append("NOT STATISTICALLY SIGNIFICANT")
+                results.append("")
+                results.append("Decision : Fail to reject the null hypothesis")
+                results.append(f"Conclusion : the sample mean ({data.mean():.4f}) is")
+                results.append(f"not significantly different from the population mean ({test_value})")
 
+            results.append("")
+            results.append("="*60)
 
+            self.test_results_text.setText("\n".join(results))
+            self.statusbar.showMessage("One-Sample T-Test completed")
 
+            test_results_dict = {
+                'test_type' : 'One-Sample T-Test',
+                'column' : column_name,
+                'test_value' : test_value,
+                'statistic' : float(statistic),
+                'p_value' : float(p_value),
+                'alpha' : self.alpha,
+                'significance' : p_value < self.alpha
+            }
 
+            self.dataManager.save_analysis(
+                self.current_dataset_id,
+                f"One-Sample T-Test - {column_name}",
+                ['Statistical test'],
+                test_results_dict
+            )
 
+        except Exception as e:
+            QMessageBox.critical(self,"Error",f"test failed : {str(e)}")
+
+    def run_two_sample_ttest(self):
+        col1_name = self.column1_combo.currentText()
+        col2_name = self.column2_combo.currentText()
+
+        if not col1_name or not col2_name :
+            QMessageBox.warning(self,"no column","please select columns for test")
+            return
+        if col1_name == col2_name:
+            QMessageBox.warning(self,"Same column","please choose two different columns")
+            return
+
+        data1 = self.data[col1_name].dropna()
+        data2 = self.data[col2_name].dropna()
+
+        if len(data1) == 0 or len(data2) == 0:
+            QMessageBox.warning(self,"Error","one or both columns are empty")
+            return
+        if not (pd.api.types.is_numeric_dtype(data1) and pd.api.types.is_numeric_dtype(data2)):
+            QMessageBox.warning(self,"Error","both columns need to be numric")
+            return
+
+        try:
+            statistic,p_value = stats.ttest_ind(data1,data2)
+            results = []
+            results.append("=" * 60)
+            results.append("TWO-SAMPLE T-TEST RESULTS")
+            results.append("=" * 60)
+            results.append(f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            results.append(f"Dataset: {self.fileName}")
+            results.append("")
+            results.append("--- Columns Tested ---")
+            results.append(f"Group 1: {col1_name} (n={len(data1)})")
+            results.append(f"Group 2: {col2_name} (n={len(data2)})")
+            results.append("")
+            results.append("--- Group Statistics ---")
+            results.append(f"Group 1 Mean: {data1.mean():.4f} (SD: {data1.std():.4f})")
+            results.append(f"Group 2 Mean: {data2.mean():.4f} (SD: {data2.std():.4f})")
+            results.append(f"Mean Difference: {data1.mean() - data2.mean():.4f}")
+            results.append("")
+            results.append("--- Test Results ---")
+            results.append(f"Test Statistic (t): {statistic:.4f}")
+            results.append(f"P-Value: {p_value:.4f}")
+            results.append(f"Significance level (α) : {self.alpha}")
+            results.append("")
+
+            if p_value < self.alpha:
+                results.append("--- Interpretation ---")
+                results.append("✅ STATISTICALLY SIGNIFICANT (p < α)")
+                results.append("")
+                results.append("Decision: REJECT the null hypothesis")
+                results.append(f"Conclusion: There IS a significant difference between")
+                results.append(f"{col1_name} and {col2_name}.")
+            else:
+                results.append("--- Interpretation ---")
+                results.append("❌ NOT STATISTICALLY SIGNIFICANT (p ≥ α)")
+                results.append("")
+                results.append("Decision: FAIL TO REJECT the null hypothesis")
+                results.append(f"Conclusion: There is NO significant difference between")
+                results.append(f"{col1_name} and {col2_name}.")
+
+            results.append("")
+            results.append("="*60)
+
+            self.test_results_text.setText("\n".join(results))
+            self.statusbar.showMessage("Two-Sample T-Test completed")
+
+            test_results_dict = {
+                'test_type': 'Two-Sample T-Test',
+                'column1': col1_name,
+                'column2': col2_name,
+                'statistic': float(statistic),
+                'p_value': float(p_value),
+                'alpha': self.alpha,
+                'significant': p_value < self.alpha
+            }
+
+            self.dataManager.save_analysis(
+                self.current_dataset_id,
+                f"Two-Sample T-Test - {col1_name} vs {col2_name}",
+                ['Statistical Test'],
+                test_results_dict
+            )
+
+        except Exception as e:
+            QMessageBox.critical(self,"Error",f"test failed : {str(e)}")
+
+    def run_paired_ttest(self):
+        col1_name = self.column1_combo.currentText()
+        col2_name = self.column2_combo.currentText()
+
+        if not col1_name or not col2_name:
+            QMessageBox.warning(self, "No Columns", "Please select two columns!")
+            return
+
+        if col1_name == col2_name:
+            QMessageBox.warning(self, "Same Column", "Please select two different columns!")
+            return
+
+        data1 = self.data[col1_name]
+        data2 = self.data[col2_name]
+
+        valid_mask = data1.notna() & data2.notna()
+        data1_clean = data1[valid_mask]
+        data2_clean = data2[valid_mask]
+
+        if len(data1_clean) == 0:
+            QMessageBox.warning(self, "Error", "No valid paired observations found!")
+            return
+
+        if not (pd.api.types.is_numeric_dtype(data1_clean) and pd.api.types.is_numeric_dtype(data2_clean)):
+            QMessageBox.warning(self, "Error", "Both columns must be numeric!")
+            return
+
+        try:
+            statistic, p_value = stats.ttest_rel(data1_clean, data2_clean)
+
+            differences = data1_clean - data2_clean
+            mean_diff = differences.mean()
+
+            results = []
+            results.append("=" * 60)
+            results.append("PAIRED T-TEST RESULTS")
+            results.append("=" * 60)
+            results.append(f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            results.append(f"Dataset: {self.fileName}")
+            results.append("")
+            results.append("--- Test Information ---")
+            results.append("Test Type: Paired Samples T-Test")
+            results.append("(Tests if the mean difference between paired observations is zero)")
+            results.append("")
+            results.append("--- Columns Tested ---")
+            results.append(f"Column 1: {col1_name}")
+            results.append(f"Column 2: {col2_name}")
+            results.append(f"Valid Pairs: {len(data1_clean)}")
+            results.append("")
+            results.append("--- Descriptive Statistics ---")
+            results.append(f"{col1_name} Mean: {data1_clean.mean():.4f} (SD: {data1_clean.std():.4f})")
+            results.append(f"{col2_name} Mean: {data2_clean.mean():.4f} (SD: {data2_clean.std():.4f})")
+            results.append("")
+            results.append("--- Difference Statistics ---")
+            results.append(f"Mean Difference: {mean_diff:.4f}")
+            results.append(f"Std Dev of Differences: {differences.std():.4f}")
+            results.append(f"Standard Error: {differences.std() / np.sqrt(len(differences)):.4f}")
+            results.append("")
+            results.append("--- Test Results ---")
+            results.append(f"Test Statistic (t): {statistic:.4f}")
+            results.append(f"P-Value: {p_value:.4f}")
+            results.append(f"Significance Level (α): {self.alpha}")
+            results.append(f"Degrees of Freedom: {len(data1_clean) - 1}")
+            results.append("")
+
+            if p_value < self.alpha:
+                results.append("--- Interpretation ---")
+                results.append("STATISTICALLY SIGNIFICANT (p < α)")
+                results.append("")
+                results.append("Decision: REJECT the null hypothesis")
+                results.append("")
+                results.append("Conclusion: There IS a significant difference between")
+                results.append(f"the paired observations in {col1_name} and {col2_name}.")
+                results.append("")
+                if mean_diff > 0:
+                    results.append(f"On average, {col1_name} is higher than {col2_name} by {abs(mean_diff):.4f}.")
+                else:
+                    results.append(f"On average, {col2_name} is higher than {col1_name} by {abs(mean_diff):.4f}.")
+            else:
+                results.append("--- Interpretation ---")
+                results.append("NOT STATISTICALLY SIGNIFICANT (p ≥ α)")
+                results.append("")
+                results.append("Decision: FAIL TO REJECT the null hypothesis")
+                results.append("")
+                results.append("Conclusion: There is NO significant difference between")
+                results.append(f"the paired observations in {col1_name} and {col2_name}.")
+
+            results.append("")
+            results.append("=" * 60)
+
+            self.test_results_text.setText("\n".join(results))
+            self.statusbar.showMessage("Paired T-Test completed!")
+
+            test_results_dict = {
+                'test_type': 'Paired T-Test',
+                'column1': col1_name,
+                'column2': col2_name,
+                'mean_difference': float(mean_diff),
+                'statistic': float(statistic),
+                'p_value': float(p_value),
+                'alpha': self.alpha,
+                'significant': p_value < self.alpha
+            }
+
+            self.dataManager.save_analysis(
+                self.current_dataset_id,
+                f"Paired T-Test - {col1_name} vs {col2_name}",
+                ['Statistical Test'],
+                test_results_dict
+            )
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Test failed: {str(e)}")
+
+    def run_chi_square_test(self):
+        col1_name = self.column1_combo.currentText()
+        col2_name = self.column2_combo.currentText()
+
+        if not col1_name or not col2_name:
+            QMessageBox.warning(self, "No Columns", "Please select two columns!")
+            return
+
+        if col1_name == col2_name:
+            QMessageBox.warning(self, "Same Column", "Please select two different columns!")
+            return
+
+        data1 = self.data[col1_name].dropna()
+        data2 = self.data[col2_name].dropna()
+
+        if len(data1) == 0 or len(data2) == 0:
+            QMessageBox.warning(self, "Error", "One or both columns are empty!")
+            return
+
+        unique1 = data1.nunique()
+        unique2 = data2.nunique()
+
+        if unique1 > 20 or unique2 > 20:
+            reply = QMessageBox.question(
+                self,
+                "Many Categories",
+                f"Column 1 has {unique1} unique values and Column 2 has {unique2}.\n"
+                "Chi-square works best with categorical data (few categories).\n\n"
+                "Continue anyway?",
+                QMessageBox.Yes | QMessageBox.No
+            )
+            if reply == QMessageBox.No:
+                return
+
+        try:
+            contingency_table = pd.crosstab(
+                self.data[col1_name],
+                self.data[col2_name],
+                dropna=True
+            )
+
+            chi2_stat, p_value, dof, expected_freq = stats.chi2_contingency(contingency_table)
+
+            results = []
+            results.append("=" * 60)
+            results.append("CHI-SQUARE TEST OF INDEPENDENCE")
+            results.append("=" * 60)
+            results.append(f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            results.append(f"Dataset: {self.fileName}")
+            results.append("")
+            results.append("--- Test Information ---")
+            results.append("Tests whether two categorical variables are independent")
+            results.append("")
+            results.append("--- Variables Tested ---")
+            results.append(f"Variable 1: {col1_name} ({unique1} categories)")
+            results.append(f"Variable 2: {col2_name} ({unique2} categories)")
+            results.append("")
+            results.append("--- Contingency Table ---")
+            results.append(str(contingency_table))
+            results.append("")
+            results.append("--- Test Results ---")
+            results.append(f"Chi-Square Statistic (χ²): {chi2_stat:.4f}")
+            results.append(f"P-Value: {p_value:.4f}")
+            results.append(f"Degrees of Freedom: {dof}")
+            results.append(f"Significance Level (α): {self.alpha}")
+            results.append("")
+
+            min_expected = expected_freq.min()
+            results.append("--- Assumption Check ---")
+            results.append(f"Minimum Expected Frequency: {min_expected:.2f}")
+            if min_expected < 5:
+                results.append("WARNING: Some expected frequencies < 5")
+                results.append("Results may not be reliable!")
+            else:
+                results.append("All expected frequencies >= 5 (assumption satisfied)")
+            results.append("")
+
+            if p_value < self.alpha:
+                results.append("--- Interpretation ---")
+                results.append("STATISTICALLY SIGNIFICANT (p < α)")
+                results.append("")
+                results.append("Decision: REJECT the null hypothesis")
+                results.append("")
+                results.append(f"Conclusion: {col1_name} and {col2_name} are NOT independent.")
+                results.append("There IS a significant association between these variables.")
+            else:
+                results.append("--- Interpretation ---")
+                results.append("NOT STATISTICALLY SIGNIFICANT (p ≥ α)")
+                results.append("")
+                results.append("Decision: FAIL TO REJECT the null hypothesis")
+                results.append("")
+                results.append(f"Conclusion: {col1_name} and {col2_name} are independent.")
+                results.append("There is NO significant association between these variables.")
+
+            results.append("")
+            results.append("=" * 60)
+
+            self.test_results_text.setText("\n".join(results))
+            self.statusbar.showMessage("Chi-Square Test completed!")
+
+            test_results_dict = {
+                'test_type': 'Chi-Square Test',
+                'variable1': col1_name,
+                'variable2': col2_name,
+                'chi2_statistic': float(chi2_stat),
+                'p_value': float(p_value),
+                'degrees_of_freedom': int(dof),
+                'alpha': self.alpha,
+                'significant': p_value < self.alpha
+            }
+
+            self.dataManager.save_analysis(
+                self.current_dataset_id,
+                f"Chi-Square Test - {col1_name} vs {col2_name}",
+                ['Statistical Test'],
+                test_results_dict
+            )
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Test failed: {str(e)}")
+
+    def run_anova_test(self):
+        if self.data is None:
+            QMessageBox.warning(self, "No Data", "Please load data first!")
+            return
+
+        numeric_cols = self.data.select_dtypes(include=['number']).columns.tolist()
+
+        if len(numeric_cols) < 3:
+            QMessageBox.warning(
+                self,
+                "Not Enough Groups",
+                "ANOVA requires at least 3 groups (numeric columns).\n"
+                f"Your dataset has only {len(numeric_cols)} numeric columns."
+            )
+            return
+
+        from PySide6.QtWidgets import QDialog, QListWidget, QDialogButtonBox
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Select Columns for ANOVA")
+        dialog_layout = QVBoxLayout()
+
+        dialog_layout.addWidget(QLabel("Select at least 3 columns to compare:"))
+
+        list_widget = QListWidget()
+        list_widget.setSelectionMode(QListWidget.MultiSelection)
+        list_widget.addItems(numeric_cols)
+        dialog_layout.addWidget(list_widget)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        dialog_layout.addWidget(buttons)
+
+        dialog.setLayout(dialog_layout)
+
+        if dialog.exec() != QDialog.Accepted:
+            return
+
+        selected_items = list_widget.selectedItems()
+        selected_cols = [item.text() for item in selected_items]
+
+        if len(selected_cols) < 3:
+            QMessageBox.warning(self, "Not Enough Groups", "Please select at least 3 columns!")
+            return
+
+        try:
+            groups = []
+            group_stats = []
+
+            for col in selected_cols:
+                data = self.data[col].dropna()
+                groups.append(data)
+                group_stats.append({
+                    'name': col,
+                    'n': len(data),
+                    'mean': data.mean(),
+                    'std': data.std()
+                })
+
+            f_stat, p_value = stats.f_oneway(*groups)
+
+            all_data = pd.concat([self.data[col].dropna() for col in selected_cols])
+            grand_mean = all_data.mean()
+
+            results = []
+            results.append("=" * 60)
+            results.append("ONE-WAY ANOVA RESULTS")
+            results.append("=" * 60)
+            results.append(f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            results.append(f"Dataset: {self.fileName}")
+            results.append("")
+            results.append("--- Test Information ---")
+            results.append("Tests whether means of 3+ groups are all equal")
+            results.append(f"Number of Groups: {len(selected_cols)}")
+            results.append("")
+            results.append("--- Groups Compared ---")
+            for i, stats_dict in enumerate(group_stats, 1):
+                results.append(f"Group {i}: {stats_dict['name']}")
+                results.append(
+                    f"  n = {stats_dict['n']}, Mean = {stats_dict['mean']:.4f}, SD = {stats_dict['std']:.4f}")
+            results.append("")
+            results.append(f"Grand Mean (all groups): {grand_mean:.4f}")
+            results.append("")
+            results.append("--- ANOVA Results ---")
+            results.append(f"F-Statistic: {f_stat:.4f}")
+            results.append(f"P-Value: {p_value:.4f}")
+            results.append(f"Significance Level (α): {self.alpha}")
+            results.append("")
+
+            if p_value < self.alpha:
+                results.append("--- Interpretation ---")
+                results.append("STATISTICALLY SIGNIFICANT (p < α)")
+                results.append("")
+                results.append("Decision: REJECT the null hypothesis")
+                results.append("")
+                results.append("Conclusion: At least one group mean is significantly")
+                results.append("different from the others.")
+                results.append("")
+                results.append("NOTE: ANOVA doesn't tell you WHICH groups differ.")
+                results.append("Consider post-hoc tests (e.g., Tukey HSD) to find out.")
+            else:
+                results.append("--- Interpretation ---")
+                results.append("NOT STATISTICALLY SIGNIFICANT (p ≥ α)")
+                results.append("")
+                results.append("Decision: FAIL TO REJECT the null hypothesis")
+                results.append("")
+                results.append("Conclusion: All group means are not significantly")
+                results.append("different from each other.")
+
+            results.append("")
+            results.append("=" * 60)
+
+            self.test_results_text.setText("\n".join(results))
+            self.statusbar.showMessage("ANOVA completed!")
+
+            test_results_dict = {
+                'test_type': 'One-Way ANOVA',
+                'groups': selected_cols,
+                'f_statistic': float(f_stat),
+                'p_value': float(p_value),
+                'alpha': self.alpha,
+                'significant': p_value < self.alpha,
+                'group_means': {stat['name']: float(stat['mean']) for stat in group_stats}
+            }
+
+            self.dataManager.save_analysis(
+                self.current_dataset_id,
+                f"ANOVA - {', '.join(selected_cols[:3])}{'...' if len(selected_cols) > 3 else ''}",
+                ['Statistical Test'],
+                test_results_dict
+            )
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"ANOVA failed: {str(e)}")
 
 
 
