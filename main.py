@@ -1,7 +1,7 @@
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QFileDialog, QWidget,
     QMessageBox, QTableWidget, QPushButton, QTableWidgetItem,
-    QTextEdit, QCheckBox, QLabel, QHBoxLayout, QGroupBox
+    QTextEdit, QCheckBox, QLabel, QHBoxLayout, QGroupBox,QTabWidget
 )
 from PySide6.QtGui import QAction
 from PySide6.QtCore import Qt
@@ -33,12 +33,12 @@ class StatCalculator(QMainWindow):
 
     def setup_ui(self):
         """Setup the main user interface"""
-        # Main container
-        container = QWidget()
-        main_layout = QHBoxLayout(container)
+        #tab widget
+        self.tabs = QTabWidget()
 
-        # Left side
-        left_layout = QVBoxLayout()
+        #data view
+        data_tab = QWidget()
+        data_layout = QVBoxLayout()
 
         # Table
         self.table = QTableWidget()
@@ -47,44 +47,57 @@ class StatCalculator(QMainWindow):
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.verticalHeader().setVisible(False)
         self.table.horizontalHeader().setStretchLastSection(True)
-        left_layout.addWidget(self.table)
 
         # Results text
         self.results_text = QTextEdit()
         self.results_text.setReadOnly(True)
         self.results_text.setPlaceholderText("Results will appear here...")
-        left_layout.addWidget(self.results_text)
 
-        # Right side
-        right_layout = QVBoxLayout()
+        data_layout.addWidget(self.table)
+        data_layout.addWidget(self.results_text)
+        data_tab.setLayout(data_layout)
+
+        #calculations
+
+        calc_tab = QWidget()
+        calc_layout = QVBoxLayout()
 
         # Calculation panel
         self.create_calculation_panel()
-        right_layout.addWidget(self.select_calculations)  # ✅ Add stored widget
+        calc_layout.addWidget(self.select_calculations)  # ✅ Add stored widget
 
         # Calculate button
         self.calc_button = QPushButton('Calculate Statistics')
         self.calc_button.clicked.connect(self.run_calculations)
         self.calc_button.setEnabled(False)
-        right_layout.addWidget(self.calc_button)
+        calc_layout.addWidget(self.calc_button)
 
         # Clear button
         clear_btn = QPushButton("Clear Data")
         clear_btn.clicked.connect(self.clear_data)
-        right_layout.addWidget(clear_btn)
+        calc_layout.addWidget(clear_btn)
 
         # Push buttons to top
-        right_layout.addStretch()
-
-        # Add layouts to main
-        main_layout.addLayout(left_layout, 3)
-        main_layout.addLayout(right_layout, 1)
+        calc_layout.addStretch()
+        calc_tab.setLayout(calc_layout)
 
         #data handling panel
-        self.create_cleaning_panel()
-        right_layout.addWidget(self.data_cleaning)
+        clean_tab = QWidget()
+        clean_layout = QVBoxLayout()
 
-        self.setCentralWidget(container)
+        self.create_cleaning_panel()
+        clean_layout.addWidget(self.data_cleaning)
+
+        clean_layout.addStretch()
+        clean_tab.setLayout(clean_layout)
+
+        #tabs
+        self.tabs.addTab(data_tab,"Data View")
+        self.tabs.addTab(calc_tab,"Calculations")
+        self.tabs.addTab(clean_tab,"Data Cleaning")
+
+        #central widget
+        self.setCentralWidget(self.tabs)
 
     def create_calculation_panel(self):
         """Create panel with calculation checkboxes"""
@@ -387,6 +400,9 @@ class StatCalculator(QMainWindow):
         cleaning_layout.addWidget(show_data)
         cleaning_layout.addWidget(R_duplicates)
         cleaning_layout.addWidget(missing_values)
+        reset = QPushButton("reset to original")
+        reset.clicked.connect(self.reset_data)
+        cleaning_layout.addWidget(reset)
         self.data_cleaning.setLayout(cleaning_layout)
 
     def showData(self):
@@ -415,80 +431,220 @@ class StatCalculator(QMainWindow):
         infos.append(f'duplicated rows : {dups_values}')
         self.results_text.setText("\n".join(infos))
 
-
-
     def missingValues(self):
+        if self.data is None:
+            QMessageBox.warning(self, "No Data", "Please load data first!")
+            return
+
+        before_rows = len(self.data)
+        before_missing = self.data.isnull().sum().sum()
+
         nulls = self.data.isnull().sum().sum()
         if nulls == 0:
-            self.results_text.setText("there is no data missing")
+            self.results_text.setText("No missing values found in dataset")
             return
+
         options = QMessageBox()
-        options.setWindowTitle("missing values")
-        options.setText("choose how to handle missing values")
+        options.setWindowTitle("Handle Missing Values")
+        options.setText(f"Found {nulls} missing values.\n\nChoose how to handle them:")
 
-        btn_remove = options.addButton("remove",QMessageBox.ActionRole)
-        btn_mean = options.addButton("fill with mean",QMessageBox.ActionRole)
-        btn_median = options.addButton("fill with median",QMessageBox.ActionRole)
-        btn_mode = options.addButton("fill with mode",QMessageBox.ActionRole)
-        btn_cancel = options.addButton("cancel",QMessageBox.ActionRole)
+        btn_remove = options.addButton("Remove Rows", QMessageBox.ActionRole)
+        btn_mean = options.addButton("Fill with Mean", QMessageBox.ActionRole)
+        btn_median = options.addButton("Fill with Median", QMessageBox.ActionRole)
+        btn_mode = options.addButton("Fill with Mode", QMessageBox.ActionRole)
+        btn_cancel = options.addButton("Cancel", QMessageBox.RejectRole)
+
         options.exec()
-
         clicked = options.clickedButton()
+
+        action_taken = None
+
         if clicked == btn_remove:
-            self.data.dropna(inplace = True)
-            self.results_text.setText("rows with missing data removed")
+            self.data.dropna(inplace=True)
+            action_taken = "Removed rows with missing values"
+
         elif clicked == btn_mean:
-            self.data.fillna(self.data.mean(numeric_only = True),inplace = True)
-            self.results_text.setText("missing data filled with mean")
+            numeric_cols = self.data.select_dtypes(include=['number']).columns
+            self.data[numeric_cols] = self.data[numeric_cols].fillna(self.data[numeric_cols].mean())
+            action_taken = "Filled missing values with mean"
+
         elif clicked == btn_median:
-            self.data.fillna(self.data.median(numeric_only = True),inplace = True)
-            self.results_text.setText("missing data filled with median")
+            numeric_cols = self.data.select_dtypes(include=['number']).columns
+            self.data[numeric_cols] = self.data[numeric_cols].fillna(self.data[numeric_cols].median())
+            action_taken = "Filled missing values with median"
+
         elif clicked == btn_mode:
-            self.data.fillna(self.data.mode().iloc[0],inplace = True)
-            self.results_text.setText("missing data filled with mode")
+            for col in self.data.columns:
+                if self.data[col].isnull().any():
+                    mode_value = self.data[col].mode()
+                    if not mode_value.empty:
+                        self.data[col].fillna(mode_value.iloc[0], inplace=True)
+            action_taken = "Filled missing values with mode"
+
         else:
-            self.results_text.setText("operation cancelled")
+            self.results_text.setText("Operation cancelled")
+            return
 
+        after_rows = len(self.data)
+        after_missing = self.data.isnull().sum().sum()
 
+        self.display_data_in_table(self.data)
+
+        summary = self.show_cleaning_summary(
+            action_taken,
+            before_rows,
+            after_rows,
+            before_missing,
+            after_missing
+        )
+        self.results_text.setText(summary)
+
+        cleaned_id = self.save_cleaned_data_to_db(action_taken)
+        if cleaned_id:
+            self.statusbar.showMessage(f"{action_taken} and saved to database")
+        else:
+            self.statusbar.showMessage(f"{action_taken} (database save failed)")
 
     def removeDups(self):
-        Brows,Bcols = self.data.shape
-        dups = self.data.duplicated().sum()
-        if dups == 0:
-            self.results_text.setText("no duplicated rows found")
+        if self.data is None:
+            QMessageBox.warning(self, "No Data", "Please load data first!")
             return
 
-        remove = QMessageBox()
-        remove.setWindowTitle("remove duplicates")
-        remove.setText("do you want to remove duplicates")
+        before_rows = len(self.data)
+        dups = self.data.duplicated().sum()
 
-        yes_btn = remove.addButton("YES",QMessageBox.ActionRole)
-        no_btn = remove.addButton("NO",QMessageBox.ActionRole)
+        if dups == 0:
+            self.results_text.setText("No duplicate rows found in dataset")
+            return
 
-        remove.exec()
-        clicked = remove.clickedButton()
-
-        if clicked == yes_btn:
-            self.data.drop_duplicates(inplace = True)
-            self.results_text.setText("duplicate rows removed")
-        else:
-            self.results_text.setText("action cancelled")
-
-        Arows,Acols = self.data.shape
-
-        self.results_text.setText(
-            "=== DATA CLEANING APPLIED ===\n"
-            "Action : removed rows with missing values\n"
-            "Before : \n"
-            f"Rows : {Brows}\n"
-            f"Columns : {Bcols}\n"
-            f"Missing values : {dups}\n"
-            "After : \n"
-            f"Rows : {Arows} ({Brows-Arows} rows removed)\n"
-            f"Columns : {Acols}\n"
-            "Missing values : 0\n"
-            "Data updated successfully"
+        reply = QMessageBox.question(
+            self,
+            "Remove Duplicates",
+            f"Found {dups} duplicate rows.\n\nDo you want to remove them?",
+            QMessageBox.Yes | QMessageBox.No
         )
+
+        if reply == QMessageBox.Yes:
+            self.data.drop_duplicates(inplace=True)
+            after_rows = len(self.data)
+
+            self.display_data_in_table(self.data)
+
+            summary = self.show_cleaning_summary(
+                "Removed duplicate rows",
+                before_rows,
+                after_rows,
+                0,
+                0
+            )
+            self.results_text.setText(summary)
+
+            cleaned_id = self.save_cleaned_data_to_db(f"Removed {dups} duplicate rows")
+            if cleaned_id:
+                self.statusbar.showMessage(f"Removed {dups} duplicates and saved to database")
+            else:
+                self.statusbar.showMessage(f"Removed {dups} duplicates (database save failed)")
+        else:
+            self.results_text.setText("Operation cancelled")
+
+    def show_cleaning_summary(self, action, before_rows, after_rows, before_missing, after_missing):
+
+        rows_removed = before_rows - after_rows
+
+        summary = []
+        summary.append("=" * 60)
+        summary.append("DATA CLEANING APPLIED")
+        summary.append("=" * 60)
+        summary.append(f"Action: {action}")
+        summary.append(f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        summary.append("")
+        summary.append("BEFORE:")
+        summary.append(f"  Rows: {before_rows}")
+        summary.append(f"  Missing Values: {before_missing}")
+        summary.append("")
+        summary.append("AFTER:")
+        summary.append(f"  Rows: {after_rows}")
+
+        if rows_removed > 0:
+            summary.append(f"  Rows Removed: {rows_removed}")
+
+        summary.append(f"  Missing Values: {after_missing}")
+        summary.append("")
+        summary.append("=" * 60)
+        summary.append("Data updated successfully!")
+        summary.append("=" * 60)
+
+        return "\n".join(summary)
+
+    def reset_data(self):
+        if self.original_data is None:
+            QMessageBox.warning(self, "No Data", "No original data to reset to!")
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "Reset Data",
+            "This will discard all cleaning operations.\n\nAre you sure?",
+            QMessageBox.Yes | QMessageBox.No
+        )
+
+        if reply == QMessageBox.Yes:
+            self.data = self.original_data.copy()
+            self.display_data_in_table(self.data)
+            self.results_text.setText(
+                "=" * 60 + "\n" +
+                "DATA RESET TO ORIGINAL\n" +
+                "=" * 60 + "\n" +
+                f"Restored original dataset: {self.fileName}\n" +
+                f"Rows: {len(self.data)}\n" +
+                f"Columns: {len(self.data.columns)}\n" +
+                "=" * 60
+            )
+            self.statusbar.showMessage("Data reset to original state")
+
+    def save_cleaned_data_to_db(self, cleaning_action):
+
+        if self.data is None or self.current_dataset_id is None:
+            return None
+
+        try:
+            base_name = os.path.splitext(self.fileName)[0]
+            extension = os.path.splitext(self.fileName)[1]
+            cleaned_filename = f"{base_name}_cleaned{extension}"
+
+            cleaned_dataset_id = self.dataManager.register_dataset(
+                cleaned_filename,
+                f"Cleaned: {cleaning_action}",
+                self.data
+            )
+
+            if cleaned_dataset_id:
+                cleaning_details = {
+                    'action': cleaning_action,
+                    'original_dataset_id': str(self.current_dataset_id),
+                    'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    'rows_before': len(self.original_data) if self.original_data is not None else 0,
+                    'rows_after': len(self.data),
+                    'columns': len(self.data.columns)
+                }
+
+                self.dataManager.save_analysis(
+                    cleaned_dataset_id,
+                    f"Cleaning - {cleaning_action}",
+                    ['Data Cleaning'],
+                    {'cleaning_info': cleaning_details}
+                )
+
+                print(f"Cleaned data saved to database with ID: {cleaned_dataset_id}")
+                return cleaned_dataset_id
+
+            return None
+
+        except Exception as e:
+            print(f"Error saving cleaned data: {str(e)}")
+            return None
+
+
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
