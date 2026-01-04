@@ -1,18 +1,24 @@
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QFileDialog, QWidget,
     QMessageBox, QTableWidget, QPushButton, QTableWidgetItem,
-    QTextEdit, QCheckBox, QLabel, QHBoxLayout, QGroupBox,QTabWidget
+    QTextEdit, QCheckBox, QLabel, QHBoxLayout, QGroupBox,QTabWidget,
+    QRadioButton,QComboBox,QDoubleSpinBox,QInputDialog
 )
 from PySide6.QtGui import QAction
 from PySide6.QtCore import Qt
+from cgitb import reset
 from database import DatabaseManager
 import sys
 import pandas as pd
+import numpy as np
 import os
 from datetime import datetime
+from scipy import stats
+from scipy.stats import ttest_1samp,ttest_ind,chi2_contingency,f_oneway
 
 
 class StatCalculator(QMainWindow):
+
     def __init__(self):
         super().__init__()
 
@@ -22,6 +28,7 @@ class StatCalculator(QMainWindow):
         self.dataManager = DatabaseManager()
         self.fileName = None
         self.original_data = None
+        self.alpha = 0.05
 
         # Setup UI
         self.setWindowTitle("Statistical Calculator")
@@ -91,10 +98,26 @@ class StatCalculator(QMainWindow):
         clean_layout.addStretch()
         clean_tab.setLayout(clean_layout)
 
+        #tests tab
+        test_tab = QWidget()
+        test_layout = QVBoxLayout()
+
+        self.create_tests_panel()
+        test_layout.addWidget(self.test_panel)
+
+        self.test_results_text = QTextEdit()
+        self.test_results_text.setReadOnly(True)
+        self.test_results_text.setPllaceholderText("Test results will appear here")
+        test_layout.addWidget(self.test_results_text)
+
+        test_layout.addStretch()
+        test_tab.setLayout(test_layout)
+
         #tabs
         self.tabs.addTab(data_tab,"Data View")
         self.tabs.addTab(calc_tab,"Calculations")
         self.tabs.addTab(clean_tab,"Data Cleaning")
+        self.tabs.addTab(test_tab,"statistical Tests")
 
         #central widget
         self.setCentralWidget(self.tabs)
@@ -222,6 +245,16 @@ class StatCalculator(QMainWindow):
             self.data = None
             return
         self.original_data = self.data.copy()
+
+        if self.data is not None:
+            columns = self.data.columns.tolist()
+            self.column1_combo.clear()
+            self.column1_combo.addItems(columns)
+            self.column1_combo.setEnabled(True)
+
+            self.column2_combo.clear()
+            self.column2_combo.addItems(columns)
+            self.column2_combo.setEnabled(True)
 
     def display_data_in_table(self, dataframe, max_rows=1000):
         """Display DataFrame in table widget"""
@@ -643,6 +676,152 @@ class StatCalculator(QMainWindow):
         except Exception as e:
             print(f"Error saving cleaned data: {str(e)}")
             return None
+
+    def create_tests_panel(self):
+        self.test_panel = QGroupBox("test panel")
+        test_layout = QVBoxLayout()
+
+        #test selection buttons
+        select_test = QGroupBox("select a test")
+        select_test_layout = QVBoxLayout()
+
+        self.OneT_test = QRadioButton("One-Sample T-Test")
+        self.TwoT_test = QRadioButton("Two-Sample T-Test")
+        self.PairedT_test = QRadioButton("Paired T-Test")
+        self.Chi2_test = QRadioButton("Chi-Square Test")
+        self.Anova = QRadioButton("Anova")
+
+        self.OneT_test.setChecked(True)
+
+        select_test_layout.addWidget(self.OneT_test)
+        select_test_layout.addWidget(self.TwoT_test)
+        select_test_layout.addWidget(self.PairedT_test)
+        select_test_layout.addWidget(self.Chi2_test)
+        select_test_layout.addWidget(self.Anova)
+
+        select_test.setLayout(select_test_layout)
+        test_layout.addWidget(select_test)
+
+        #column selection buttons
+        select_column = QGroupBox("select column")
+        column_layout = QVBoxLayout()
+
+        column_layout.addWidget(QLabel("Column 1: "))
+        self.colmun1_combo = QComboBox()
+        self.colmun1_combo.setEnabled(False)
+        column_layout.addWidget(self.colmun1_combo)
+
+        column_layout.addWidget(QLabel("Column 2: "))
+        self.column2_combo = QComboBox()
+        self.column2_combo.setEnabled(False)
+        column_layout.addWidget(self.column2_combo)
+
+        select_column.setLayout(column_layout)
+        test_layout.addWidget(select_column)
+
+        #Parameters
+        params_group = QGroupBox("Test Parameters")
+        params_layout = QVBoxLayout()
+
+        params_layout.addWidget(QLabel("Significance level (α) :"))
+        self.params = QDoubleSpinBox()
+        self.params.setRange(0.01,0.1)
+        self.params.setDecimals(2)
+        self.params.setSingleStep(0.01)
+        self.params.setValue(0.05)
+        self.params.setPrefix("α = ")
+        self.params.valueChanged.connect(self.alpha_changed)
+
+        params_layout.addWidget(self.params)
+        params_group.setLayout(params_layout)
+        test_layout.addWidget(params_group)
+
+        #run calculations button
+        RunT_btn = QPushButton("Run Test")
+        RunT_btn.clicked.connect(self.run_test)
+        test_layout.addWidget(RunT_btn)
+
+        self.test_panel.setLayout(test_layout)
+
+    def alpha_changed(self,value):
+        self.alpha = value
+
+    def run_test(self):
+        if self.data is None :
+            QMessageBox.warning(self,"No data","Please load data first")
+            return
+
+        if self.OneT_test.isChecked():
+            self.run_one_sample_ttest()
+        elif self.TwoT_test.isChecked():
+            self.run_two_sample_ttest()
+        elif self.PairedT_test.isChecked():
+            self.run_paired_ttest()
+        elif self.Chi2_test.isChecked():
+            self.run_chi_square_test()
+        elif self.Anova.isChecked():
+            self.run_anova_test()
+
+    def run_one_sample_ttest(self):
+        column_name = self.colmun1_combo.currentText()
+
+        if not column_name:
+            QMessageBox().warning(self,"No column","Please select a column")
+            return
+
+        data = self.data[column_name].dropna()
+
+        if len(data) == 0:
+            QMessageBox.warning(self,"Error","Selected an empty column")
+            return
+
+        if not pd.api.types.is_numeric_dtype(data):
+            QMessageBox.warning(self,"Error","Selected a non numeric column")
+            return
+
+        test_value,ok=QInputDialog.getDouble(
+            self,
+            "Population Mean",
+            "Enter the population men to test against : ",
+            value = data.mean(),
+            decimals=2
+        )
+
+        if not ok:
+            return
+
+        try:
+            statistic,p_value = stats.ttest_1samp(data,test_value)
+
+            results = []
+            results.append("="*60)
+            results.append("ONE-SAMPLE T-TEST RESULTS")
+            results.append("="*60)
+            results.append(f'Date : {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}')
+            results.append(f"Dataset : {self.fileName}")
+            results.append(f"")
+            results.append("--- Test Information ---")
+            results.append(f"Column : {column_name}")
+            results.append(f"Sample Size : {len(data)}")
+            results.append(f"Population Mean (HO) : {test_value}")
+            results.append("")
+            results.append("--- Sample test ---")
+            results.append(f"Sample Mean : {data.mean():.4f}")
+            results.append(f"Sample std Dev : {data.std()/np.sqrt(len(data)):.4f}")
+            results.append("")
+            results.append("--- Test Results ---")
+            results.append(f"Test Statistic (t) : {statistic:.4f}")
+            results.append(f"p-Value : {p_value:.4f}")
+            results.append(f"Significance level (α) : {self.alpha}")
+            results.append(f"Degree of freedom : {len(data) - 1}")
+            results.append("")
+
+
+
+
+
+
+
 
 
 
