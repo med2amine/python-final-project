@@ -3,7 +3,7 @@ from PySide6.QtWidgets import (
     QMessageBox, QTableWidget, QPushButton, QTableWidgetItem,
     QTextEdit, QCheckBox, QLabel, QHBoxLayout, QGroupBox,QTabWidget,
     QRadioButton,QComboBox,QDoubleSpinBox,QInputDialog,QDialog,QListWidget,
-    QDialogButtonBox
+    QDialogButtonBox,QScrollArea
 
 )
 from PySide6.QtGui import QAction
@@ -19,6 +19,7 @@ from scipy.stats import ttest_1samp,ttest_ind,chi2_contingency,f_oneway
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
+from PLOTCANVAS import PlotCanvas
 
 
 class StatCalculator(QMainWindow):
@@ -270,6 +271,8 @@ class StatCalculator(QMainWindow):
             self.column2_combo.clear()
             self.column2_combo.addItems(columns)
             self.column2_combo.setEnabled(True)
+
+            self.populate_plot_columns()
 
     def display_data_in_table(self, dataframe, max_rows=1000):
         """Display DataFrame in table widget"""
@@ -1356,85 +1359,506 @@ class StatCalculator(QMainWindow):
             QMessageBox.critical(self, "Error", f"ANOVA failed: {str(e)}")
 
     def create_plots_panel(self):
-        self.plot_panel = QGroupBox("Plot Panel")
-        plot_layout = QHBoxLayout()
+        """Create plotting interface with dynamic column selection"""
+        self.plot_panel = QGroupBox("Data Visualization")
+        main_layout = QHBoxLayout()
 
+        # RIGHT SIDE: Controls
+        controls_widget = QWidget()
+        controls_layout = QVBoxLayout()
 
-        #right side
-        right_plot_panel = QGroupBox("plot controls")
-        right_layout = QVBoxLayout()
-        #left side
-        left_plot_panel = QGroupBox("Plot display")
-        left_layout = QVBoxLayout()
+        # Plot type selection
+        plot_type_group = QGroupBox("Select Plot Type")
+        plot_type_layout = QVBoxLayout()
 
-        #plot selection panel
-        select_plot = QGroupBox("select the plot type you like")
-        plot_selection_layout = QVBoxLayout()
+        # Store radio buttons as instance variables
+        self.histogram_radio = QRadioButton("Histogram (1 column)")
+        self.boxplot_radio = QRadioButton("Box Plot (1+ columns)")
+        self.scatter_radio = QRadioButton("Scatter Plot (2 columns)")
+        self.bar_radio = QRadioButton("Bar Chart (1 column)")
+        self.line_radio = QRadioButton("Line Plot (2 columns)")
+        self.heatmap_radio = QRadioButton("Correlation Heatmap (all numeric)")
+        self.violin_radio = QRadioButton("Violin Plot (1+ columns)")
+        self.pairplot_radio = QRadioButton("Pair Plot (2-5 columns)")
 
-        Histogram = QRadioButton("Histogram")
-        Box_plot = QRadioButton("Box plot")
-        Scatter_plot = QRadioButton("Scatter plot")
-        Plot_bar = QRadioButton("Plot bar")
-        Line_plot = QRadioButton("Line plot")
-        Correlation_Heatmap = QRadioButton("Correlation heatmap")
+        # Set default
+        self.histogram_radio.setChecked(True)
 
-        plot_selection_layout.addWidget(Histogram)
-        plot_selection_layout.addWidget(Box_plot)
-        plot_selection_layout.addWidget(Scatter_plot)
-        plot_selection_layout.addWidget(Line_plot)
-        plot_selection_layout.addWidget(Correlation_Heatmap)
+        # Connect radio buttons to update column selection UI
+        self.histogram_radio.toggled.connect(self.update_column_selection_ui)
+        self.boxplot_radio.toggled.connect(self.update_column_selection_ui)
+        self.scatter_radio.toggled.connect(self.update_column_selection_ui)
+        self.bar_radio.toggled.connect(self.update_column_selection_ui)
+        self.line_radio.toggled.connect(self.update_column_selection_ui)
+        self.heatmap_radio.toggled.connect(self.update_column_selection_ui)
+        self.violin_radio.toggled.connect(self.update_column_selection_ui)
+        self.pairplot_radio.toggled.connect(self.update_column_selection_ui)
 
-        select_plot.setLayout(plot_selection_layout)
-        right_layout.addWidget(select_plot)
+        plot_type_layout.addWidget(self.histogram_radio)
+        plot_type_layout.addWidget(self.boxplot_radio)
+        plot_type_layout.addWidget(self.scatter_radio)
+        plot_type_layout.addWidget(self.bar_radio)
+        plot_type_layout.addWidget(self.line_radio)
+        plot_type_layout.addWidget(self.heatmap_radio)
+        plot_type_layout.addWidget(self.violin_radio)
+        plot_type_layout.addWidget(self.pairplot_radio)
 
-        #Column selection
+        plot_type_group.setLayout(plot_type_layout)
+        controls_layout.addWidget(plot_type_group)
 
-        select_column = QGroupBox("select columns for plotting")
-        column_selection_layout = QVBoxLayout()
+        # Column selection - Multiple modes
+        self.column_selection_group = QGroupBox("Select Column(s)")
+        self.column_selection_layout = QVBoxLayout()
 
-        column_selection_layout.addWidget(QLabel("Column 1: "))
-        self.column1_combo = QComboBox()
-        self.column1_combo.setEnabled(False)
-        column_selection_layout.addWidget(self.column1_combo)
+        # Mode 1: Single column dropdown (for histogram, bar, etc.)
+        self.single_column_widget = QWidget()
+        single_layout = QVBoxLayout()
+        single_layout.addWidget(QLabel("Select Column:"))
+        self.plot_single_combo = QComboBox()
+        self.plot_single_combo.setEnabled(False)
+        single_layout.addWidget(self.plot_single_combo)
+        self.single_column_widget.setLayout(single_layout)
 
-        column_selection_layout.addWidget(QLabel("Column 2: "))
-        self.column2_combo = QComboBox()
-        self.column2_combo.setEnabled(False)
-        column_selection_layout.addWidget(self.column2_combo)
+        # Mode 2: Two columns (for scatter, line)
+        self.two_column_widget = QWidget()
+        two_layout = QVBoxLayout()
+        two_layout.addWidget(QLabel("X-axis Column:"))
+        self.plot_x_combo = QComboBox()
+        self.plot_x_combo.setEnabled(False)
+        two_layout.addWidget(self.plot_x_combo)
+        two_layout.addWidget(QLabel("Y-axis Column:"))
+        self.plot_y_combo = QComboBox()
+        self.plot_y_combo.setEnabled(False)
+        two_layout.addWidget(self.plot_y_combo)
+        self.two_column_widget.setLayout(two_layout)
 
-        select_column.setLayout(column_selection_layout)
-        right_layout.addWidget(select_column)
+        # Mode 3: Multiple columns with checkboxes (for boxplot, violin, pairplot)
+        self.multi_column_widget = QWidget()
+        multi_layout = QVBoxLayout()
+        multi_layout.addWidget(QLabel("Select Columns (check multiple):"))
 
-        #buttons
+        # Scrollable area for checkboxes
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setMaximumHeight(200)
 
-        select_button = QGroupBox()
-        button_selection_layout = QVBoxLayout()
+        self.column_checkboxes_widget = QWidget()
+        self.column_checkboxes_layout = QVBoxLayout()
+        self.column_checkboxes = {}  # Will store column name -> checkbox
+        self.column_checkboxes_widget.setLayout(self.column_checkboxes_layout)
 
-        Generate_button = QPushButton("Generate plot")
-        Save_button = QPushButton("Save button")
+        scroll.setWidget(self.column_checkboxes_widget)
+        multi_layout.addWidget(scroll)
 
-        button_selection_layout.addWidget(Generate_button)
-        button_selection_layout.addWidget(Save_button)
+        # Select All / Clear All buttons
+        checkbox_buttons = QHBoxLayout()
+        select_all_btn = QPushButton("Select All")
+        select_all_btn.clicked.connect(self.select_all_plot_columns)
+        clear_all_btn = QPushButton("Clear All")
+        clear_all_btn.clicked.connect(self.clear_all_plot_columns)
+        checkbox_buttons.addWidget(select_all_btn)
+        checkbox_buttons.addWidget(clear_all_btn)
+        multi_layout.addLayout(checkbox_buttons)
 
-        select_button.setLayout(button_selection_layout)
+        self.multi_column_widget.setLayout(multi_layout)
 
-        right_layout.addWidget(select_button)
+        # Mode 4: No selection needed (for correlation heatmap - uses all numeric)
+        self.no_column_widget = QWidget()
+        no_layout = QVBoxLayout()
+        no_layout.addWidget(QLabel("(Uses all numeric columns automatically)"))
+        self.no_column_widget.setLayout(no_layout)
 
-        right_plot_panel.setLayout(right_layout)
+        # Add all modes to layout (will show/hide as needed)
+        self.column_selection_layout.addWidget(self.single_column_widget)
+        self.column_selection_layout.addWidget(self.two_column_widget)
+        self.column_selection_layout.addWidget(self.multi_column_widget)
+        self.column_selection_layout.addWidget(self.no_column_widget)
 
-        plot_layout.addWidget(right_plot_panel,stretch=1)
+        self.column_selection_group.setLayout(self.column_selection_layout)
+        controls_layout.addWidget(self.column_selection_group)
 
-        #left side
-        self.Plot_display = QTextEdit()
-        self.Plot_display.setReadOnly(True)
-        self.Plot_display.setPlaceholderText("Plots will display here")
+        # Buttons
+        button_group = QGroupBox()
+        button_layout = QVBoxLayout()
 
-        left_layout.addWidget(self.Plot_display)
-        left_plot_panel.setLayout(left_layout)
+        generate_btn = QPushButton("Generate Plot")
+        generate_btn.clicked.connect(self.generate_plot)
+        button_layout.addWidget(generate_btn)
 
-        plot_layout.addWidget(left_plot_panel,stretch=2)
+        save_btn = QPushButton("Save Plot")
+        save_btn.clicked.connect(self.save_plot)
+        button_layout.addWidget(save_btn)
 
-        self.plot_panel.setLayout(plot_layout)
+        clear_btn = QPushButton("Clear Plot")
+        clear_btn.clicked.connect(self.clear_plot)
+        button_layout.addWidget(clear_btn)
+
+        button_group.setLayout(button_layout)
+        controls_layout.addWidget(button_group)
+
+        controls_layout.addStretch()
+        controls_widget.setLayout(controls_layout)
+
+        # LEFT SIDE: Plot Display
+        plot_display_widget = QWidget()
+        plot_display_layout = QVBoxLayout()
+
+        self.plot_canvas = PlotCanvas(self, width=8, height=6)
+        plot_display_layout.addWidget(self.plot_canvas)
+
+        plot_display_widget.setLayout(plot_display_layout)
+
+        # Add to main layout
+        main_layout.addWidget(controls_widget, 1)
+        main_layout.addWidget(plot_display_widget, 3)
+
+        self.plot_panel.setLayout(main_layout)
+
+        # Initialize - show correct column selection
+        self.update_column_selection_ui()
+
+    def update_column_selection_ui(self):
+        """Show/hide appropriate column selection based on plot type"""
+        # Hide all first
+        self.single_column_widget.hide()
+        self.two_column_widget.hide()
+        self.multi_column_widget.hide()
+        self.no_column_widget.hide()
+
+        # Show appropriate one based on selected plot
+        if self.histogram_radio.isChecked() or self.bar_radio.isChecked():
+            # Single column
+            self.single_column_widget.show()
+
+        elif self.scatter_radio.isChecked() or self.line_radio.isChecked():
+            # Two columns
+            self.two_column_widget.show()
+
+        elif self.boxplot_radio.isChecked() or self.violin_radio.isChecked() or self.pairplot_radio.isChecked():
+            # Multiple columns with checkboxes
+            self.multi_column_widget.show()
+
+        elif self.heatmap_radio.isChecked():
+            # No selection needed
+            self.no_column_widget.show()
+
+    def populate_plot_columns(self):
+        """Populate all plot column selectors with current data columns"""
+        if self.data is None:
+            return
+
+        columns = self.data.columns.tolist()
+        numeric_columns = self.data.select_dtypes(include=['number']).columns.tolist()
+
+        # Single column dropdown
+        self.plot_single_combo.clear()
+        self.plot_single_combo.addItems(numeric_columns)
+        self.plot_single_combo.setEnabled(True)
+
+        # Two column dropdowns
+        self.plot_x_combo.clear()
+        self.plot_x_combo.addItems(numeric_columns)
+        self.plot_x_combo.setEnabled(True)
+
+        self.plot_y_combo.clear()
+        self.plot_y_combo.addItems(numeric_columns)
+        if len(numeric_columns) > 1:
+            self.plot_y_combo.setCurrentIndex(1)  # Set to different column by default
+        self.plot_y_combo.setEnabled(True)
+
+        # Multiple column checkboxes
+        # Clear existing checkboxes
+        for checkbox in self.column_checkboxes.values():
+            checkbox.deleteLater()
+        self.column_checkboxes.clear()
+
+        # Create new checkboxes for each numeric column
+        for col in numeric_columns:
+            checkbox = QCheckBox(col)
+            self.column_checkboxes[col] = checkbox
+            self.column_checkboxes_layout.addWidget(checkbox)
+
+    def select_all_plot_columns(self):
+        """Select all column checkboxes"""
+        for checkbox in self.column_checkboxes.values():
+            checkbox.setChecked(True)
+
+    def clear_all_plot_columns(self):
+        """Clear all column checkboxes"""
+        for checkbox in self.column_checkboxes.values():
+            checkbox.setChecked(False)
+
+    def get_selected_plot_columns(self):
+        """Get list of selected columns from checkboxes"""
+        selected = []
+        for col_name, checkbox in self.column_checkboxes.items():
+            if checkbox.isChecked():
+                selected.append(col_name)
+        return selected
+
+    def generate_plot(self):
+        """Generate the selected plot with appropriate columns"""
+        if self.data is None:
+            QMessageBox.warning(self, "No Data", "Please load data first!")
+            return
+
+        try:
+            # HISTOGRAM (1 column)
+            if self.histogram_radio.isChecked():
+                col = self.plot_single_combo.currentText()
+                if not col:
+                    QMessageBox.warning(self, "No Column", "Select a column!")
+                    return
+                data = self.data[col].dropna()
+                if len(data) == 0:
+                    QMessageBox.warning(self, "Empty Data", f"{col} has no data!")
+                    return
+                self.plot_canvas.plot_histogram(data, title=f"Histogram: {col}")
+
+            # BOX PLOT (1+ columns)
+            elif self.boxplot_radio.isChecked():
+                selected_cols = self.get_selected_plot_columns()
+                if len(selected_cols) == 0:
+                    QMessageBox.warning(self, "No Columns", "Select at least one column!")
+                    return
+
+                # Prepare data for multiple columns
+                plot_data = []
+                labels = []
+                for col in selected_cols:
+                    data = self.data[col].dropna()
+                    if len(data) > 0:
+                        plot_data.append(data)
+                        labels.append(col)
+
+                if len(plot_data) == 0:
+                    QMessageBox.warning(self, "Empty Data", "Selected columns have no data!")
+                    return
+
+                self.plot_canvas.box_plot(plot_data, labels=labels,
+                                              title=f"Box Plot: {', '.join(labels)}")
+
+            # SCATTER PLOT (2 columns)
+            elif self.scatter_radio.isChecked():
+                x_col = self.plot_x_combo.currentText()
+                y_col = self.plot_y_combo.currentText()
+
+                if not x_col or not y_col:
+                    QMessageBox.warning(self, "Missing Columns", "Select both X and Y columns!")
+                    return
+
+                if x_col == y_col:
+                    QMessageBox.warning(self, "Same Column", "Select different columns for X and Y!")
+                    return
+
+                x_data = self.data[x_col].dropna()
+                y_data = self.data[y_col].dropna()
+
+                # Use common indices (intersection)
+                common_idx = x_data.index.intersection(y_data.index)
+                x_data = self.data.loc[common_idx, x_col]
+                y_data = self.data.loc[common_idx, y_col]
+
+                if len(x_data) == 0:
+                    QMessageBox.warning(self, "No Data", "No valid data points for scatter plot!")
+                    return
+
+                self.plot_canvas.scatter(x_data, y_data,
+                                              title=f"Scatter: {x_col} vs {y_col}",
+                                              x_label=x_col, y_label=y_col)
+
+            # BAR CHART (1 column - categorical)
+            elif self.bar_radio.isChecked():
+                col = self.plot_single_combo.currentText()
+                if not col:
+                    QMessageBox.warning(self, "No Column", "Select a column!")
+                    return
+
+                value_counts = self.data[col].value_counts().head(20)  # Limit to top 20
+                if len(value_counts) == 0:
+                    QMessageBox.warning(self, "No Data", f"{col} has no data!")
+                    return
+
+                self.plot_canvas.bar_chart(
+                    value_counts.index.astype(str).tolist(),
+                    value_counts.values.tolist(),
+                    title=f"Bar Chart: {col}"
+                )
+
+            # LINE PLOT (2 columns)
+            elif self.line_radio.isChecked():
+                x_col = self.plot_x_combo.currentText()
+                y_col = self.plot_y_combo.currentText()
+
+                if not x_col or not y_col:
+                    QMessageBox.warning(self, "Missing Columns", "Select both X and Y columns!")
+                    return
+
+                if x_col == y_col:
+                    QMessageBox.warning(self, "Same Column", "Select different columns!")
+                    return
+
+                x_data = self.data[x_col].dropna()
+                y_data = self.data[y_col].dropna()
+
+                common_idx = x_data.index.intersection(y_data.index)
+                x_data = self.data.loc[common_idx, x_col]
+                y_data = self.data.loc[common_idx, y_col]
+
+                if len(x_data) == 0:
+                    QMessageBox.warning(self, "No Data", "No valid data points!")
+                    return
+
+                # Sort by x for better line plot
+                sorted_idx = x_data.sort_values().index
+                x_data = x_data[sorted_idx]
+                y_data = y_data[sorted_idx]
+
+                self.plot_canvas.line_plot(x_data, y_data,
+                                           title=f"Line Plot: {x_col} vs {y_col}",
+                                           x_label=x_col, y_label=y_col)
+
+            # CORRELATION HEATMAP (all numeric columns)
+            elif self.heatmap_radio.isChecked():
+                numeric_data = self.data.select_dtypes(include=['number'])
+
+                if numeric_data.empty:
+                    QMessageBox.warning(self, "No Numeric Data",
+                                        "Dataset has no numeric columns!")
+                    return
+
+                if len(numeric_data.columns) < 2:
+                    QMessageBox.warning(self, "Not Enough Columns",
+                                        "Need at least 2 numeric columns for correlation!")
+                    return
+
+                self.plot_canvas.correlation_heatmap(numeric_data)
+
+            # VIOLIN PLOT (1+ columns)
+            elif self.violin_radio.isChecked():
+                selected_cols = self.get_selected_plot_columns()
+                if len(selected_cols) == 0:
+                    QMessageBox.warning(self, "No Columns", "Select at least one column!")
+                    return
+
+                # Use seaborn for violin plot
+                try:
+                    import seaborn as sns
+                    self.plot_canvas.clear_plot()
+
+                    plot_data = []
+                    labels = []
+                    for col in selected_cols:
+                        data = self.data[col].dropna()
+                        if len(data) > 0:
+                            plot_data.append(data)
+                            labels.append(col)
+
+                    if len(plot_data) == 0:
+                        QMessageBox.warning(self, "Empty Data", "No valid data!")
+                        return
+
+                    # Create violin plot
+                    for i, (data, label) in enumerate(zip(plot_data, labels)):
+                        parts = self.plot_canvas.ax.violinplot([data], positions=[i],
+                                                               showmeans=True, showmedians=True)
+
+                    self.plot_canvas.ax.set_xticks(range(len(labels)))
+                    self.plot_canvas.ax.set_xticklabels(labels, rotation=45, ha='right')
+                    self.plot_canvas.ax.set_title(f"Violin Plot: {', '.join(labels)}")
+                    self.plot_canvas.ax.set_ylabel("Values")
+                    self.plot_canvas.ax.grid(True, alpha=0.3)
+                    self.plot_canvas.fig.tight_layout()
+                    self.plot_canvas.draw()
+
+                except ImportError:
+                    QMessageBox.warning(self, "Missing Package",
+                                        "Install seaborn: pip install seaborn")
+                    return
+
+            # PAIR PLOT (2-5 columns)
+            elif self.pairplot_radio.isChecked():
+                selected_cols = self.get_selected_plot_columns()
+
+                if len(selected_cols) < 2:
+                    QMessageBox.warning(self, "Not Enough Columns",
+                                        "Select at least 2 columns!")
+                    return
+
+                if len(selected_cols) > 5:
+                    QMessageBox.warning(self, "Too Many Columns",
+                                        "Select maximum 5 columns for pair plot!")
+                    return
+
+                # Create pair plot using scatter plots
+                import numpy as np
+                n_cols = len(selected_cols)
+
+                self.plot_canvas.fig.clear()
+
+                for i, col1 in enumerate(selected_cols):
+                    for j, col2 in enumerate(selected_cols):
+                        ax = self.plot_canvas.fig.add_subplot(n_cols, n_cols, i * n_cols + j + 1)
+
+                        if i == j:
+                            # Diagonal: histogram
+                            data = self.data[col1].dropna()
+                            ax.hist(data, bins=15, edgecolor='black', alpha=0.7)
+                            ax.set_ylabel('Frequency' if j == 0 else '')
+                        else:
+                            # Off-diagonal: scatter
+                            x_data = self.data[col2].dropna()
+                            y_data = self.data[col1].dropna()
+                            common_idx = x_data.index.intersection(y_data.index)
+                            ax.scatter(self.data.loc[common_idx, col2],
+                                       self.data.loc[common_idx, col1], alpha=0.5, s=10)
+
+                        # Labels
+                        if i == n_cols - 1:
+                            ax.set_xlabel(col2, fontsize=8)
+                        else:
+                            ax.set_xticklabels([])
+
+                        if j == 0:
+                            ax.set_ylabel(col1, fontsize=8)
+                        else:
+                            ax.set_yticklabels([])
+
+                        ax.tick_params(labelsize=6)
+
+                self.plot_canvas.fig.suptitle(f"Pair Plot: {', '.join(selected_cols)}")
+                self.plot_canvas.fig.tight_layout()
+                self.plot_canvas.draw()
+
+            self.statusbar.showMessage("Plot generated successfully!")
+
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            QMessageBox.critical(self, "Plot Error",
+                                 f"Failed to generate plot:\n{str(e)}")
+
+    def save_plot(self):
+        """Save the current plot to file"""
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save Plot",
+            "",
+            "PNG Files (*.png);;JPEG Files (*.jpg);;PDF Files (*.pdf);;All Files (*)"
+        )
+
+        if file_path:
+            try:
+                self.plot_canvas.save_plot(file_path)
+                self.statusbar.showMessage(f"Plot saved to {file_path}")
+                QMessageBox.information(self, "Success", f"Plot saved successfully!")
+            except Exception as e:
+                QMessageBox.critical(self, "Save Error", f"Failed to save plot:\n{str(e)}")
+
+    def clear_plot(self):
+        """Clear the current plot"""
+        self.plot_canvas.clear_plot()
+        self.statusbar.showMessage("Plot cleared")
 
 
 
