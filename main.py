@@ -16,6 +16,9 @@ import os
 from datetime import datetime
 from scipy import stats
 from scipy.stats import ttest_1samp,ttest_ind,chi2_contingency,f_oneway
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.figure import Figure
 
 
 class StatCalculator(QMainWindow):
@@ -114,11 +117,22 @@ class StatCalculator(QMainWindow):
         test_layout.addStretch()
         test_tab.setLayout(test_layout)
 
+        #plot tab
+        plot_tab = QWidget()
+        plot_layout = QVBoxLayout()
+
+        self.create_plots_panel()
+        plot_layout.addWidget(self.plot_panel)
+
+        plot_layout.addStretch()
+        plot_tab.setLayout(plot_layout)
+
         #tabs
         self.tabs.addTab(data_tab,"Data View")
         self.tabs.addTab(calc_tab,"Calculations")
         self.tabs.addTab(clean_tab,"Data Cleaning")
         self.tabs.addTab(test_tab,"statistical Tests")
+        self.tabs.addTab(plot_tab,"Plotting")
 
         #central widget
         self.setCentralWidget(self.tabs)
@@ -1340,6 +1354,88 @@ class StatCalculator(QMainWindow):
 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"ANOVA failed: {str(e)}")
+
+    def create_plots_panel(self):
+        self.plot_panel = QGroupBox("Plot Panel")
+        plot_layout = QHBoxLayout()
+
+
+        #right side
+        right_plot_panel = QGroupBox("plot controls")
+        right_layout = QVBoxLayout()
+        #left side
+        left_plot_panel = QGroupBox("Plot display")
+        left_layout = QVBoxLayout()
+
+        #plot selection panel
+        select_plot = QGroupBox("select the plot type you like")
+        plot_selection_layout = QVBoxLayout()
+
+        Histogram = QRadioButton("Histogram")
+        Box_plot = QRadioButton("Box plot")
+        Scatter_plot = QRadioButton("Scatter plot")
+        Plot_bar = QRadioButton("Plot bar")
+        Line_plot = QRadioButton("Line plot")
+        Correlation_Heatmap = QRadioButton("Correlation heatmap")
+
+        plot_selection_layout.addWidget(Histogram)
+        plot_selection_layout.addWidget(Box_plot)
+        plot_selection_layout.addWidget(Scatter_plot)
+        plot_selection_layout.addWidget(Line_plot)
+        plot_selection_layout.addWidget(Correlation_Heatmap)
+
+        select_plot.setLayout(plot_selection_layout)
+        right_layout.addWidget(select_plot)
+
+        #Column selection
+
+        select_column = QGroupBox("select columns for plotting")
+        column_selection_layout = QVBoxLayout()
+
+        column_selection_layout.addWidget(QLabel("Column 1: "))
+        self.column1_combo = QComboBox()
+        self.column1_combo.setEnabled(False)
+        column_selection_layout.addWidget(self.column1_combo)
+
+        column_selection_layout.addWidget(QLabel("Column 2: "))
+        self.column2_combo = QComboBox()
+        self.column2_combo.setEnabled(False)
+        column_selection_layout.addWidget(self.column2_combo)
+
+        select_column.setLayout(column_selection_layout)
+        right_layout.addWidget(select_column)
+
+        #buttons
+
+        select_button = QGroupBox()
+        button_selection_layout = QVBoxLayout()
+
+        Generate_button = QPushButton("Generate plot")
+        Save_button = QPushButton("Save button")
+
+        button_selection_layout.addWidget(Generate_button)
+        button_selection_layout.addWidget(Save_button)
+
+        select_button.setLayout(button_selection_layout)
+
+        right_layout.addWidget(select_button)
+
+        right_plot_panel.setLayout(right_layout)
+
+        plot_layout.addWidget(right_plot_panel,stretch=1)
+
+        #left side
+        self.Plot_display = QTextEdit()
+        self.Plot_display.setReadOnly(True)
+        self.Plot_display.setPlaceholderText("Plots will display here")
+
+        left_layout.addWidget(self.Plot_display)
+        left_plot_panel.setLayout(left_layout)
+
+        plot_layout.addWidget(left_plot_panel,stretch=2)
+
+        self.plot_panel.setLayout(plot_layout)
+
 
 
 
