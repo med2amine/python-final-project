@@ -20,6 +20,16 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from PLOTCANVAS import PlotCanvas
+from PDFgenerator import PDFGenerator
+from reportlab.lib.pagesizes import letter, A4
+from reportlab.lib import colors
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+from reportlab.platypus import (
+    SimpleDocTemplate, Table, TableStyle, Paragraph,
+    Spacer, PageBreak, Image, HRFlowable
+)
+from reportlab.lib.enums import TA_CENTER, TA_LEFT
 
 
 class StatCalculator(QMainWindow):
@@ -34,6 +44,10 @@ class StatCalculator(QMainWindow):
         self.fileName = None
         self.original_data = None
         self.alpha = 0.05
+        self.last_statistics_results = None
+        self.last_test_results = None
+        self.last_cleaning_summary = None
+        self.generated_plots = []
 
         # Setup UI
         self.setWindowTitle("Statistical Calculator")
@@ -44,7 +58,6 @@ class StatCalculator(QMainWindow):
         self.create_statusbar()
 
     def setup_ui(self):
-        """Setup the main user interface"""
         #tab widget
         self.tabs = QTabWidget()
 
@@ -128,18 +141,28 @@ class StatCalculator(QMainWindow):
         plot_layout.addStretch()
         plot_tab.setLayout(plot_layout)
 
+        #Pdf report tab
+        export_tab = QWidget()
+        export_layout = QVBoxLayout()
+
+        self.create_export_panel()
+        export_layout.addWidget(self.export_panel)
+
+        export_layout.addStretch()
+        export_tab.setLayout(export_layout)
+
         #tabs
         self.tabs.addTab(data_tab,"Data View")
         self.tabs.addTab(calc_tab,"Calculations")
         self.tabs.addTab(clean_tab,"Data Cleaning")
         self.tabs.addTab(test_tab,"statistical Tests")
         self.tabs.addTab(plot_tab,"Plotting")
+        self.tabs.addTab(export_tab,"Export/Reports")
 
         #central widget
         self.setCentralWidget(self.tabs)
 
     def create_calculation_panel(self):
-        """Create panel with calculation checkboxes"""
         self.select_calculations = QGroupBox('Select Calculations')
         calc_layout = QVBoxLayout()
 
@@ -168,13 +191,11 @@ class StatCalculator(QMainWindow):
         self.select_calculations.setLayout(calc_layout)
 
     def toggle_all_calculations(self, state):
-        """Select or deselect all calculation checkboxes"""
         checked = (state != Qt.Checked)
         for checkbox in self.calc_checkboxes.values():
             checkbox.setChecked(checked)
 
     def create_menubar(self):
-        """Create menu bar"""
         menubar = self.menuBar()
 
         # File Menu
@@ -408,6 +429,13 @@ class StatCalculator(QMainWindow):
             else:
                 self.statusbar.showMessage("Calculations completed but save failed")
 
+            self.last_statistics_results = {
+                'timestamp': datetime.now(),
+                'dataset': self.fileName,
+                'results': results_dict,
+                'calculations': selected_calc
+            }
+
         except Exception as e:
             error_msg = f"Calculation error: {str(e)}"
             self.statusbar.showMessage(error_msg)
@@ -624,6 +652,15 @@ class StatCalculator(QMainWindow):
         summary.append("=" * 60)
         summary.append("Data updated successfully!")
         summary.append("=" * 60)
+
+        self.last_cleaning_summary = {
+            'action': action,
+            'before_rows': before_rows,
+            'after_rows': after_rows,
+            'before_missing': before_missing,
+            'after_missing': after_missing,
+            'timestamp': datetime.now()
+        }
 
         return "\n".join(summary)
 
@@ -898,6 +935,13 @@ class StatCalculator(QMainWindow):
                 test_results_dict
             )
 
+            self.last_test_results = {
+                'type': 'One-Sample T-Test',
+                'timestamp': datetime.now(),
+                'column': column_name,
+                'results': test_results_dict
+            }
+
         except Exception as e:
             QMessageBox.critical(self,"Error",f"test failed : {str(e)}")
 
@@ -983,6 +1027,13 @@ class StatCalculator(QMainWindow):
                 ['Statistical Test'],
                 test_results_dict
             )
+
+            self.last_test_results = {
+                'type': 'Two-Sample T-Test',
+                'timestamp': datetime.now(),
+                'columns': [col1_name,col2_name],
+                'results': test_results_dict
+            }
 
         except Exception as e:
             QMessageBox.critical(self,"Error",f"test failed : {str(e)}")
@@ -1097,6 +1148,13 @@ class StatCalculator(QMainWindow):
                 ['Statistical Test'],
                 test_results_dict
             )
+
+            self.last_test_results = {
+                'type': 'Paired T-Test',
+                'timestamp': datetime.now(),
+                'column': [col1_name,col2_name],
+                'results': test_results_dict
+            }
 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Test failed: {str(e)}")
@@ -1218,6 +1276,13 @@ class StatCalculator(QMainWindow):
                 ['Statistical Test'],
                 test_results_dict
             )
+
+            self.last_test_results = {
+                'type': 'Chi square Test',
+                'timestamp': datetime.now(),
+                'column': [col1_name,col2_name],
+                'results': test_results_dict
+            }
 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Test failed: {str(e)}")
@@ -1354,6 +1419,13 @@ class StatCalculator(QMainWindow):
                 ['Statistical Test'],
                 test_results_dict
             )
+
+            self.last_test_results = {
+                'type': 'Anova Test',
+                'timestamp': datetime.now(),
+                'column': selected_cols,
+                'results': test_results_dict
+            }
 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"ANOVA failed: {str(e)}")
@@ -1516,6 +1588,7 @@ class StatCalculator(QMainWindow):
 
         # Initialize - show correct column selection
         self.update_column_selection_ui()
+
 
     def update_column_selection_ui(self):
         """Show/hide appropriate column selection based on plot type"""
@@ -1832,6 +1905,11 @@ class StatCalculator(QMainWindow):
 
             self.statusbar.showMessage("Plot generated successfully!")
 
+            temp_plot_path = f"temp_plot_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+            self.plot_canvas.fig.savefig(temp_plot_path, dpi=150, bbox_inches='tight')
+            self.generated_plots.append(temp_plot_path)
+
+
         except Exception as e:
             import traceback
             traceback.print_exc()
@@ -1860,8 +1938,299 @@ class StatCalculator(QMainWindow):
         self.plot_canvas.clear_plot()
         self.statusbar.showMessage("Plot cleared")
 
+    def create_export_panel(self):
+        self.export_panel = QGroupBox("Export & Report Generation")
+        layout = QVBoxLayout()
 
+        options_group = QGroupBox("Report Contents")
+        options_layout = QVBoxLayout()
 
+        self.include_data_info = QCheckBox("Include dataset information")
+        self.include_data_info.setChecked(True)
+        options_layout.addWidget(self.include_data_info)
+
+        self.include_statistics = QCheckBox("Include statistical analysis results")
+        self.include_statistics.setChecked(True)
+        options_layout.addWidget(self.include_statistics)
+
+        self.include_tests = QCheckBox("Include Statistical Test Results")
+        self.include_tests.setChecked(True)
+        options_layout.addWidget(self.include_tests)
+
+        self.include_plots = QCheckBox("Include Generated Plots")
+        self.include_plots.setChecked(True)
+        options_layout.addWidget(self.include_plots)
+
+        self.include_cleaning = QCheckBox("Include Data Cleaning Summary")
+        self.include_cleaning.setChecked(True)
+        options_layout.addWidget(self.include_cleaning)
+
+        options_group.setLayout(options_layout)
+        layout.addWidget(options_group)
+
+        generate_btn = QPushButton("Generate PDF Report")
+        generate_btn.setStyleSheet("""
+               QPushButton {
+                   background-color: #27ae60;
+                   color: white;
+                   padding: 15px;
+                   font-size: 14px;
+                   font-weight: bold;
+                   border-radius: 5px;
+               }
+               QPushButton:hover {
+                   background-color: #229954;
+               }
+           """)
+        generate_btn.clicked.connect(self.generate_pdf_report)
+        layout.addWidget(generate_btn)
+
+        quick_group = QGroupBox("Quick Exports")
+        quick_layout = QVBoxLayout()
+
+        export_results_btn = QPushButton("Export Results to CSV")
+        export_results_btn.clicked.connect(self.export_results_csv)
+        quick_layout.addWidget(export_results_btn)
+
+        export_data_btn = QPushButton("Export Current Data to CSV")
+        export_data_btn.clicked.connect(self.export_data_csv)
+        quick_layout.addWidget(export_data_btn)
+
+        quick_group.setLayout(quick_layout)
+        layout.addWidget(quick_group)
+
+        self.export_status = QLabel("")
+        layout.addWidget(self.export_status)
+
+        layout.addStretch()
+        self.export_panel.setLayout(layout)
+
+    def generate_pdf_report(self):
+        """Generate comprehensive PDF report"""
+        if self.data is None:
+            QMessageBox.warning(self, "No Data", "Please load data first!")
+            return
+
+        # Ask for save location
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save PDF Report",
+            f"Report_{self.fileName}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+            "PDF Files (*.pdf)"
+        )
+
+        if not file_path:
+            return
+
+        try:
+
+            self.export_status.setText("Generating PDF report...")
+            self.export_status.setStyleSheet("color: blue;")
+
+            pdf = PDFGenerator(file_path)
+
+            # Title
+            pdf.add_title("Statistical Analysis Report")
+            pdf.add_paragraph(f"<b>Generated:</b> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            pdf.add_paragraph(f"<b>Dataset:</b> {self.fileName}")
+            pdf.add_line()
+            pdf.add_spacer()
+
+            # 1. Dataset Information
+            if self.include_data_info.isChecked():
+                pdf.add_heading("1. Dataset Information")
+
+                rows, cols = self.data.shape
+                missing = self.data.isnull().sum().sum()
+                duplicates = self.data.duplicated().sum()
+
+                data_info = [
+                    ["Property", "Value"],
+                    ["Total Rows", str(rows)],
+                    ["Total Columns", str(cols)],
+                    ["Missing Values", str(missing)],
+                    ["Duplicate Rows", str(duplicates)],
+                    ["Memory Usage", f"{self.data.memory_usage(deep=True).sum() / 1024:.2f} KB"]
+                ]
+                pdf.add_table(data_info, col_widths=[3 * inch, 3 * inch])
+
+                # Column types
+                pdf.add_paragraph("<b>Column Information:</b>")
+                col_data = [["Column Name", "Data Type", "Non-Null Count"]]
+                for col in self.data.columns:
+                    col_data.append([
+                        col,
+                        str(self.data[col].dtype),
+                        str(self.data[col].count())
+                    ])
+                pdf.add_table(col_data, col_widths=[2 * inch, 2 * inch, 2 * inch])
+                pdf.add_page_break()
+
+            # 2. Statistical Analysis
+            if self.include_statistics.isChecked() and self.last_statistics_results:
+                pdf.add_heading("2. Statistical Analysis Results")
+
+                stats_data = [["Statistic", "Column", "Value"]]
+                results = self.last_statistics_results['results']
+
+                for col, calcs in results.items():
+                    for calc_name, value in calcs.items():
+                        stats_data.append([
+                            calc_name,
+                            col,
+                            f"{value:.4f}" if value is not None else "N/A"
+                        ])
+
+                pdf.add_table(stats_data, col_widths=[2 * inch, 2 * inch, 2 * inch])
+                pdf.add_spacer()
+
+            # 3. Statistical Tests
+            if self.include_tests.isChecked() and self.last_test_results:
+                pdf.add_heading("3. Statistical Test Results")
+
+                test = self.last_test_results
+                pdf.add_paragraph(f"<b>Test Type:</b> {test['type']}")
+                pdf.add_paragraph(f"<b>Performed:</b> {test['timestamp'].strftime('%Y-%m-%d %H:%M:%S')}")
+                pdf.add_spacer(0.1)
+
+                test_data = [["Parameter", "Value"]]
+                for key, value in test['results'].items():
+                    if isinstance(value, float):
+                        test_data.append([str(key).replace('_', ' ').title(), f"{value:.4f}"])
+                    else:
+                        test_data.append([str(key).replace('_', ' ').title(), str(value)])
+
+                pdf.add_table(test_data, col_widths=[3 * inch, 3 * inch])
+                pdf.add_page_break()
+
+            # 4. Plots
+            if self.include_plots.isChecked() and len(self.generated_plots) > 0:
+                pdf.add_heading("4. Data Visualizations")
+
+                for i, plot_path in enumerate(self.generated_plots[-5:], 1):  # Last 5 plots
+                    if os.path.exists(plot_path):
+                        pdf.add_paragraph(f"<b>Plot {i}:</b>")
+                        pdf.add_image(plot_path, width=6 * inch, height=4 * inch)
+                        if i < len(self.generated_plots[-5:]):
+                            pdf.add_page_break()
+
+            # 5. Data Cleaning Summary
+            if self.include_cleaning.isChecked() and self.last_cleaning_summary:
+                pdf.add_page_break()
+                pdf.add_heading("5. Data Cleaning Summary")
+
+                clean_data = [["Operation", "Details"]]
+                clean_data.append(["Action", self.last_cleaning_summary['action']])
+                clean_data.append(["Rows Before", str(self.last_cleaning_summary['before_rows'])])
+                clean_data.append(["Rows After", str(self.last_cleaning_summary['after_rows'])])
+                clean_data.append(["Rows Removed",
+                                   str(self.last_cleaning_summary['before_rows'] -
+                                       self.last_cleaning_summary['after_rows'])])
+
+                pdf.add_table(clean_data, col_widths=[2 * inch, 4 * inch])
+
+            # Footer
+            pdf.add_spacer()
+            pdf.add_line()
+            pdf.add_paragraph(
+                f"<i>Report generated by Statistical Calculator v1.0 on "
+                f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</i>"
+            )
+
+            # Build PDF
+            pdf.build()
+
+            self.export_status.setText(f"✅ Report saved: {os.path.basename(file_path)}")
+            self.export_status.setStyleSheet("color: green;")
+
+            QMessageBox.information(
+                self,
+                "Success",
+                f"PDF report generated successfully!\n\n{file_path}"
+            )
+
+            # Open the PDF
+            reply = QMessageBox.question(
+                self,
+                "Open Report?",
+                "Would you like to open the PDF report now?",
+                QMessageBox.Yes | QMessageBox.No
+            )
+
+            if reply == QMessageBox.Yes:
+                import subprocess
+                import platform
+                if platform.system() == 'Windows':
+                    os.startfile(file_path)
+                elif platform.system() == 'Darwin':  # macOS
+                    subprocess.call(['open', file_path])
+                else:  # Linux
+                    subprocess.call(['xdg-open', file_path])
+
+        except Exception as e:
+            self.export_status.setText(f"❌ Error: {str(e)}")
+            self.export_status.setStyleSheet("color: red;")
+            QMessageBox.critical(self, "Error", f"Failed to generate report:\n{str(e)}")
+
+    def export_results_csv(self):
+        """Export analysis results to CSV"""
+        if not self.last_statistics_results:
+            QMessageBox.warning(self, "No Results", "No analysis results to export!")
+            return
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export Results",
+            f"Results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+            "CSV Files (*.csv)"
+        )
+
+        if file_path:
+            try:
+                # Convert results to DataFrame
+                results_list = []
+                for col, calcs in self.last_statistics_results['results'].items():
+                    for calc_name, value in calcs.items():
+                        results_list.append({
+                            'Column': col,
+                            'Statistic': calc_name,
+                            'Value': value
+                        })
+
+                df_results = pd.DataFrame(results_list)
+                df_results.to_csv(file_path, index=False)
+
+                QMessageBox.information(self, "Success", "Results exported successfully!")
+                self.statusbar.showMessage(f"Exported: {os.path.basename(file_path)}")
+
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Export failed:\n{str(e)}")
+
+    def export_data_csv(self):
+        """Export current dataset to CSV"""
+        if self.data is None:
+            QMessageBox.warning(self, "No Data", "No data to export!")
+            return
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export Data",
+            f"{os.path.splitext(self.fileName)[0]}_exported.csv",
+            "CSV Files (*.csv);;Excel Files (*.xlsx)"
+        )
+
+        if file_path:
+            try:
+                if file_path.endswith('.csv'):
+                    self.data.to_csv(file_path, index=False)
+                elif file_path.endswith('.xlsx'):
+                    self.data.to_excel(file_path, index=False)
+
+                QMessageBox.information(self, "Success", "Data exported successfully!")
+                self.statusbar.showMessage(f"Exported: {os.path.basename(file_path)}")
+
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Export failed:\n{str(e)}")
 
 
 if __name__ == "__main__":
