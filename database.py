@@ -267,3 +267,51 @@ class DatabaseManager:
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Context manager exit - automatically close connection"""
         self.close()
+
+    def get_analysis_details(self, analysis_id):
+        """Get detailed results of a specific analysis"""
+        try:
+            cursor = self.connection.cursor()
+
+            # Get analysis info
+            cursor.execute('''
+                SELECT ah.*, d.filename
+                FROM analysis_history ah
+                JOIN datasets d ON ah.dataset_id = d.dataset_id
+                WHERE ah.analysis_id = ?
+            ''', (analysis_id,))
+            analysis_info = cursor.fetchone()
+
+            # Get calculation results
+            cursor.execute('''
+                SELECT column_name, calculation_type, result_value
+                FROM calculation_results
+                WHERE analysis_id = ?
+            ''', (analysis_id,))
+            calc_results = cursor.fetchall()
+
+            return {
+                'info': analysis_info,
+                'results': calc_results
+            }
+        except Exception as e:
+            print(f"Error retrieving analysis details: {e}")
+            return None
+
+    def delete_analysis(self, analysis_id):
+        """Delete an analysis and its results"""
+        try:
+            cursor = self.connection.cursor()
+
+            # Delete calculation results first (foreign key constraint)
+            cursor.execute('DELETE FROM calculation_results WHERE analysis_id = ?', (analysis_id,))
+
+            # Delete analysis
+            cursor.execute('DELETE FROM analysis_history WHERE analysis_id = ?', (analysis_id,))
+
+            self.connection.commit()
+            return True
+        except Exception as e:
+            print(f"Error deleting analysis: {e}")
+            self.connection.rollback()
+            return False

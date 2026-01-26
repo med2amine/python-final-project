@@ -30,6 +30,7 @@ from reportlab.platypus import (
     Spacer, PageBreak, Image, HRFlowable
 )
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
+import json
 
 
 class StatCalculator(QMainWindow):
@@ -151,6 +152,15 @@ class StatCalculator(QMainWindow):
         export_layout.addStretch()
         export_tab.setLayout(export_layout)
 
+        #history tab
+        history_tab = QWidget()
+        history_layout = QVBoxLayout()
+
+        self.create_history_panel()
+        history_layout.addWidget(self.history_panel)
+
+        history_tab.setLayout(history_layout)
+
         #tabs
         self.tabs.addTab(data_tab,"Data View")
         self.tabs.addTab(calc_tab,"Calculations")
@@ -158,6 +168,7 @@ class StatCalculator(QMainWindow):
         self.tabs.addTab(test_tab,"statistical Tests")
         self.tabs.addTab(plot_tab,"Plotting")
         self.tabs.addTab(export_tab,"Export/Reports")
+        self.tabs.addTab(history_tab, "History")
 
         #central widget
         self.setCentralWidget(self.tabs)
@@ -2232,6 +2243,337 @@ class StatCalculator(QMainWindow):
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Export failed:\n{str(e)}")
 
+    def create_history_panel(self):
+        """Create analysis history viewer"""
+        self.history_panel = QGroupBox("Analysis History")
+        layout = QVBoxLayout()
+
+        # Top controls
+        controls_layout = QHBoxLayout()
+
+        refresh_btn = QPushButton("Refresh History")
+        refresh_btn.clicked.connect(self.load_history)
+        controls_layout.addWidget(refresh_btn)
+
+        view_btn = QPushButton("View Selected Analysis")
+        view_btn.clicked.connect(self.view_selected_analysis)
+        controls_layout.addWidget(view_btn)
+
+        delete_btn = QPushButton("Delete Selected")
+        delete_btn.clicked.connect(self.delete_selected_analysis)
+        delete_btn.setStyleSheet("background-color: #e74c3c; color: white;")
+        controls_layout.addWidget(delete_btn)
+
+        clear_all_btn = QPushButton("Clear All History")
+        clear_all_btn.clicked.connect(self.clear_all_history)
+        clear_all_btn.setStyleSheet("background-color: #c0392b; color: white;")
+        controls_layout.addWidget(clear_all_btn)
+
+        controls_layout.addStretch()
+        layout.addLayout(controls_layout)
+
+        # History table
+        self.history_table = QTableWidget()
+        self.history_table.setColumnCount(5)
+        self.history_table.setHorizontalHeaderLabels([
+            "ID", "Date", "Analysis Type", "Dataset", "Calculations"
+        ])
+        self.history_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.history_table.setSelectionMode(QTableWidget.SingleSelection)
+        self.history_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.history_table.setAlternatingRowColors(True)
+        self.history_table.horizontalHeader().setStretchLastSection(True)
+        self.history_table.doubleClicked.connect(self.view_selected_analysis)
+
+        layout.addWidget(self.history_table)
+
+        # Details display
+        details_group = QGroupBox("Analysis Details")
+        details_layout = QVBoxLayout()
+
+        self.history_details = QTextEdit()
+        self.history_details.setReadOnly(True)
+        self.history_details.setPlaceholderText("Select an analysis to view details...")
+        self.history_details.setMaximumHeight(200)
+
+        details_layout.addWidget(self.history_details)
+        details_group.setLayout(details_layout)
+        layout.addWidget(details_group)
+
+        # Status
+        self.history_status = QLabel("Click 'Refresh History' to load past analyses")
+        layout.addWidget(self.history_status)
+
+        self.history_panel.setLayout(layout)
+
+        # Load history on creation
+        self.load_history()
+
+        stats_group = QGroupBox("History Statistics")
+        stats_layout = QHBoxLayout()
+
+        self.total_analyses_label = QLabel("Total Analyses: 0")
+        self.total_datasets_label = QLabel("Datasets Analyzed: 0")
+        self.most_recent_label = QLabel("Last Analysis: Never")
+
+    def load_history(self):
+        """Load analysis history from database"""
+        try:
+            history = self.dataManager.get_analysis_history(limit=100)
+
+            self.history_table.setRowCount(len(history))
+
+            for row_idx, record in enumerate(history):
+                # record: (analysis_id, analysis_name, analysis_date, filename, calculations_performed)
+                analysis_id = record[0]
+                analysis_name = record[1]
+                analysis_date = record[2]
+                filename = record[3]
+                calculations = record[4]
+
+                # Parse calculations from JSON
+                try:
+                    calc_list = json.loads(calculations) if calculations else []
+                    if isinstance(calc_list, list):
+                        calc_display = ", ".join(calc_list)
+                    else:
+                        calc_display = str(calculations)
+                except:
+                    calc_display = str(calculations)
+
+                # Determine analysis type
+                if "Test" in analysis_name:
+                    analysis_type = "Statistical Test"
+                elif "Cleaning" in analysis_name:
+                    analysis_type = "Data Cleaning"
+                elif "Analysis" in analysis_name:
+                    analysis_type = "Statistical Analysis"
+                else:
+                    analysis_type = "Other"
+
+                # Add to table
+                self.history_table.setItem(row_idx, 0, QTableWidgetItem(str(analysis_id)))
+                self.history_table.setItem(row_idx, 1, QTableWidgetItem(str(analysis_date)))
+                self.history_table.setItem(row_idx, 2, QTableWidgetItem(analysis_type))
+                self.history_table.setItem(row_idx, 3, QTableWidgetItem(filename))
+                self.history_table.setItem(row_idx, 4, QTableWidgetItem(
+                    calc_display[:50] + "..." if len(calc_display) > 50 else calc_display))
+
+            self.history_table.resizeColumnsToContents()
+            self.history_status.setText(f"✅ Loaded {len(history)} analysis records")
+            self.history_status.setStyleSheet("color: green;")
+
+        except Exception as e:
+            self.history_status.setText(f"❌ Error loading history: {str(e)}")
+            self.history_status.setStyleSheet("color: red;")
+            print(f"History load error: {e}")
+
+    def view_selected_analysis(self):
+        """Display details of selected analysis"""
+        selected_rows = self.history_table.selectedItems()
+
+        if not selected_rows:
+            QMessageBox.warning(self, "No Selection", "Please select an analysis to view!")
+            return
+
+        # Get analysis ID from first column
+        row = self.history_table.currentRow()
+        analysis_id = int(self.history_table.item(row, 0).text())
+
+        try:
+            # Get full analysis details from database
+            details = self.dataManager.get_analysis_details(analysis_id)
+
+            if not details:
+                QMessageBox.warning(self, "Not Found", "Analysis details not found!")
+                return
+
+            # Parse details
+            analysis_info = details['info']
+            calc_results = details['results']
+
+            # ✅ Check how many elements we actually have
+            print(f"DEBUG: analysis_info has {len(analysis_info)} elements")
+            print(f"DEBUG: analysis_info = {analysis_info}")
+
+            # Format for display
+            display_text = []
+            display_text.append("=" * 60)
+            display_text.append("ANALYSIS DETAILS")
+            display_text.append("=" * 60)
+
+            # ✅ FIXED: Safe index access with bounds checking
+            display_text.append(f"Analysis ID: {analysis_info[0]}")
+            display_text.append(f"Dataset ID: {analysis_info[1]}")
+            display_text.append(f"Date: {analysis_info[2]}")
+            display_text.append(f"Name: {analysis_info[3]}")
+
+            # ✅ FIXED: Check if filename exists (index 6 or 7 depending on query)
+            if len(analysis_info) > 6:
+                display_text.append(f"Dataset: {analysis_info[6]}")  # Try index 6
+            elif len(analysis_info) > 7:
+                display_text.append(f"Dataset: {analysis_info[7]}")  # Or index 7
+            else:
+                # Get filename from table if not in analysis_info
+                dataset_filename = self.history_table.item(row, 3).text()
+                display_text.append(f"Dataset: {dataset_filename}")
+
+            display_text.append("")
+            display_text.append("--- Calculations Performed ---")
+
+            # ✅ FIXED: Safer JSON parsing
+            try:
+                calcs = json.loads(analysis_info[4]) if analysis_info[4] else []
+                if isinstance(calcs, list):
+                    display_text.append(", ".join(str(c) for c in calcs))
+                else:
+                    display_text.append(str(calcs))
+            except (json.JSONDecodeError, IndexError):
+                display_text.append("(No calculations info)")
+
+            display_text.append("")
+            display_text.append("--- Results Summary ---")
+
+            # ✅ FIXED: Safer results parsing
+            try:
+                results_summary = json.loads(analysis_info[5]) if len(analysis_info) > 5 and analysis_info[5] else {}
+                if isinstance(results_summary, dict):
+                    for key, value in results_summary.items():
+                        if isinstance(value, dict):
+                            display_text.append(f"\n{key}:")
+                            for sub_key, sub_value in value.items():
+                                if isinstance(sub_value, (int, float)):
+                                    display_text.append(f"  {sub_key}: {sub_value:.4f}")
+                                else:
+                                    display_text.append(f"  {sub_key}: {sub_value}")
+                        else:
+                            if isinstance(value, (int, float)):
+                                display_text.append(f"{key}: {value:.4f}")
+                            else:
+                                display_text.append(f"{key}: {value}")
+                else:
+                    display_text.append(str(results_summary))
+            except (json.JSONDecodeError, IndexError):
+                display_text.append("(No results summary available)")
+
+            display_text.append("")
+            display_text.append("--- Detailed Results ---")
+
+            # ✅ Display detailed calculation results
+            if calc_results and len(calc_results) > 0:
+                for result in calc_results[:20]:  # Limit to first 20 results
+                    column = result[0]
+                    calc_type = result[1]
+                    value = result[2]
+                    if isinstance(value, (int, float)):
+                        display_text.append(f"{column} - {calc_type}: {value:.4f}")
+                    else:
+                        display_text.append(f"{column} - {calc_type}: {value}")
+            else:
+                display_text.append("(No detailed results available)")
+
+            display_text.append("")
+            display_text.append("=" * 60)
+
+            # Display in details area
+            self.history_details.setText("\n".join(display_text))
+
+            self.history_status.setText(f"✅ Viewing analysis ID: {analysis_id}")
+            self.history_status.setStyleSheet("color: green;")
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to load analysis:\n{str(e)}")
+            print(f"View analysis error: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def delete_selected_analysis(self):
+        """Delete selected analysis from database"""
+        selected_rows = self.history_table.selectedItems()
+
+        if not selected_rows:
+            QMessageBox.warning(self, "No Selection", "Please select an analysis to delete!")
+            return
+
+        row = self.history_table.currentRow()
+        analysis_id = int(self.history_table.item(row, 0).text())
+        analysis_name = self.history_table.item(row, 3).text()
+
+        # Confirm deletion
+        reply = QMessageBox.question(
+            self,
+            "Confirm Delete",
+            f"Are you sure you want to delete this analysis?\n\n"
+            f"ID: {analysis_id}\n"
+            f"Dataset: {analysis_name}\n\n"
+            f"This action cannot be undone!",
+            QMessageBox.Yes | QMessageBox.No
+        )
+
+        if reply == QMessageBox.Yes:
+            try:
+                success = self.dataManager.delete_analysis(analysis_id)
+
+                if success:
+                    self.history_status.setText(f"✅ Deleted analysis ID: {analysis_id}")
+                    self.history_status.setStyleSheet("color: green;")
+
+                    # Refresh table
+                    self.load_history()
+                    self.history_details.clear()
+
+                    QMessageBox.information(self, "Success", "Analysis deleted successfully!")
+                else:
+                    QMessageBox.warning(self, "Failed", "Could not delete analysis!")
+
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Delete failed:\n{str(e)}")
+
+    def clear_all_history(self):
+        """Clear all analysis history"""
+        reply = QMessageBox.question(
+            self,
+            "Confirm Clear All",
+            "⚠️ WARNING ⚠️\n\n"
+            "This will delete ALL analysis history from the database!\n\n"
+            "This action CANNOT be undone!\n\n"
+            "Are you absolutely sure?",
+            QMessageBox.Yes | QMessageBox.No
+        )
+
+        if reply == QMessageBox.Yes:
+            # Second confirmation
+            reply2 = QMessageBox.question(
+                self,
+                "Final Confirmation",
+                "Last chance! Delete ALL history?",
+                QMessageBox.Yes | QMessageBox.No
+            )
+
+            if reply2 == QMessageBox.Yes:
+                try:
+                    cursor = self.dataManager.connection.cursor()
+
+                    # Delete all calculation results first
+                    cursor.execute("DELETE FROM calculation_results")
+
+                    # Delete all analyses
+                    cursor.execute("DELETE FROM analysis_history")
+
+                    self.dataManager.connection.commit()
+
+                    self.history_status.setText("✅ All history cleared")
+                    self.history_status.setStyleSheet("color: green;")
+
+                    # Refresh
+                    self.load_history()
+                    self.history_details.clear()
+
+                    QMessageBox.information(self, "Success", "All history cleared!")
+
+                except Exception as e:
+                    self.dataManager.connection.rollback()
+                    QMessageBox.critical(self, "Error", f"Failed to clear history:\n{str(e)}")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
