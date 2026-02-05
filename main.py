@@ -193,7 +193,7 @@ class StatCalculator(QMainWindow):
         )
 
         self.tabs.addTab(
-            self.make_scrollable_tab(history_tab),l
+            self.make_scrollable_tab(history_tab),
             "History"
         )
 
@@ -1503,7 +1503,6 @@ class StatCalculator(QMainWindow):
             QMessageBox.critical(self, "Error", f"ANOVA failed: {str(e)}")
 
     def create_plots_panel(self):
-        """Create plotting interface with dynamic column selection"""
         self.plot_panel = QGroupBox("Data Visualization")
         main_layout = QHBoxLayout()
 
