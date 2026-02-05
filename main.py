@@ -31,7 +31,7 @@ from reportlab.platypus import (
 )
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 import json
-
+from app_stylesheet import MODERN_STYLESHEET
 
 class StatCalculator(QMainWindow):
 
@@ -57,6 +57,9 @@ class StatCalculator(QMainWindow):
         self.setup_ui()
         self.create_menubar()
         self.create_statusbar()
+
+        #shortcuts
+        self.setup_shortcuts()
 
     def setup_ui(self):
         #tab widget
@@ -162,13 +165,37 @@ class StatCalculator(QMainWindow):
         history_tab.setLayout(history_layout)
 
         #tabs
-        self.tabs.addTab(data_tab,"Data View")
-        self.tabs.addTab(calc_tab,"Calculations")
-        self.tabs.addTab(clean_tab,"Data Cleaning")
-        self.tabs.addTab(test_tab,"statistical Tests")
-        self.tabs.addTab(plot_tab,"Plotting")
-        self.tabs.addTab(export_tab,"Export/Reports")
-        self.tabs.addTab(history_tab, "History")
+        self.tabs.addTab(data_tab, "Data View")
+
+        self.tabs.addTab(
+            self.make_scrollable_tab(calc_tab),
+            "Calculations"
+        )
+
+        self.tabs.addTab(
+            self.make_scrollable_tab(clean_tab),
+            "Data Cleaning"
+        )
+
+        self.tabs.addTab(
+            self.make_scrollable_tab(test_tab),
+            "Statistical Tests"
+        )
+
+        self.tabs.addTab(
+            self.make_scrollable_tab(plot_tab),
+            "Plotting"
+        )
+
+        self.tabs.addTab(
+            self.make_scrollable_tab(export_tab),
+            "Export / Reports"
+        )
+
+        self.tabs.addTab(
+            self.make_scrollable_tab(history_tab),l
+            "History"
+        )
 
         #central widget
         self.setCentralWidget(self.tabs)
@@ -176,6 +203,9 @@ class StatCalculator(QMainWindow):
     def create_calculation_panel(self):
         self.select_calculations = QGroupBox('Select Calculations')
         calc_layout = QVBoxLayout()
+
+        calc_layout.setSpacing(12)
+        calc_layout.setContentsMargins(20, 25, 20, 20)
 
         self.calc_checkboxes = {}
         calculations = [
@@ -191,11 +221,15 @@ class StatCalculator(QMainWindow):
 
         for calc in calculations:
             checkbox = QCheckBox(calc)
+            checkbox.setMinimumHeight(30)
             self.calc_checkboxes[calc] = checkbox
             calc_layout.addWidget(checkbox)
 
         calc_layout.addWidget(QLabel(""))
+        calc_layout.addSpacing(15)
+
         select_all_cb = QCheckBox("Select All")
+        select_all_cb.setMinimumHeight(30)
         select_all_cb.stateChanged.connect(self.toggle_all_calculations)
         calc_layout.addWidget(select_all_cb)
 
@@ -747,15 +781,25 @@ class StatCalculator(QMainWindow):
         self.test_panel = QGroupBox("test panel")
         test_layout = QVBoxLayout()
 
+        test_layout.setSpacing(15)
+        test_layout.setContentsMargins(20, 25, 20, 20)
+
         #test selection buttons
         select_test = QGroupBox("select a test")
         select_test_layout = QVBoxLayout()
+
+        select_test_layout.setSpacing(12)
+        select_test_layout.setContentsMargins(15, 20, 15, 15)
 
         self.OneT_test = QRadioButton("One-Sample T-Test")
         self.TwoT_test = QRadioButton("Two-Sample T-Test")
         self.PairedT_test = QRadioButton("Paired T-Test")
         self.Chi2_test = QRadioButton("Chi-Square Test")
         self.Anova = QRadioButton("Anova")
+
+        for radio in [self.OneT_test, self.TwoT_test, self.PairedT_test,
+                      self.Chi2_test, self.Anova]:
+            radio.setMinimumHeight(30)
 
         self.OneT_test.setChecked(True)
 
@@ -768,26 +812,40 @@ class StatCalculator(QMainWindow):
         select_test.setLayout(select_test_layout)
         test_layout.addWidget(select_test)
 
+        test_layout.addSpacing(20)
+
         #column selection buttons
         select_column = QGroupBox("select column")
         column_layout = QVBoxLayout()
 
+        column_layout.setSpacing(10)
+        column_layout.setContentsMargins(15, 20, 15, 15)
+
         column_layout.addWidget(QLabel("Column 1: "))
         self.column1_combo = QComboBox()
+        self.column1_combo.setMinimumHeight(35)
         self.column1_combo.setEnabled(False)
         column_layout.addWidget(self.column1_combo)
 
+        column_layout.addSpacing(10)
+
         column_layout.addWidget(QLabel("Column 2: "))
         self.column2_combo = QComboBox()
+        self.column2_combo.setMinimumHeight(35)
         self.column2_combo.setEnabled(False)
         column_layout.addWidget(self.column2_combo)
 
         select_column.setLayout(column_layout)
         test_layout.addWidget(select_column)
 
+        test_layout.addSpacing(20)
+
         #Parameters
         params_group = QGroupBox("Test Parameters")
         params_layout = QVBoxLayout()
+
+        params_layout.setSpacing(10)
+        params_layout.setContentsMargins(15, 20, 15, 15)
 
         params_layout.addWidget(QLabel("Significance level (α) :"))
         self.params = QDoubleSpinBox()
@@ -796,11 +854,14 @@ class StatCalculator(QMainWindow):
         self.params.setSingleStep(0.01)
         self.params.setValue(0.05)
         self.params.setPrefix("α = ")
+        self.params.setMinimumHeight(35)
         self.params.valueChanged.connect(self.alpha_changed)
 
         params_layout.addWidget(self.params)
         params_group.setLayout(params_layout)
         test_layout.addWidget(params_group)
+
+        test_layout.addSpacing(20)
 
         #run calculations button
         RunT_btn = QPushButton("Run Test")
@@ -1446,13 +1507,22 @@ class StatCalculator(QMainWindow):
         self.plot_panel = QGroupBox("Data Visualization")
         main_layout = QHBoxLayout()
 
+        main_layout.setSpacing(20)
+        main_layout.setContentsMargins(15, 20, 15, 15)
+
         # RIGHT SIDE: Controls
         controls_widget = QWidget()
         controls_layout = QVBoxLayout()
 
+        controls_layout.setSpacing(15)
+        controls_layout.setContentsMargins(10, 10, 10, 10)
+
         # Plot type selection
         plot_type_group = QGroupBox("Select Plot Type")
         plot_type_layout = QVBoxLayout()
+
+        plot_type_layout.setSpacing(10)
+        plot_type_layout.setContentsMargins(15, 20, 15, 15)
 
         # Store radio buttons as instance variables
         self.histogram_radio = QRadioButton("Histogram (1 column)")
@@ -1463,6 +1533,11 @@ class StatCalculator(QMainWindow):
         self.heatmap_radio = QRadioButton("Correlation Heatmap (all numeric)")
         self.violin_radio = QRadioButton("Violin Plot (1+ columns)")
         self.pairplot_radio = QRadioButton("Pair Plot (2-5 columns)")
+
+        for radio in [self.histogram_radio, self.boxplot_radio, self.scatter_radio,
+                      self.bar_radio, self.line_radio, self.heatmap_radio,
+                      self.violin_radio, self.pairplot_radio]:
+            radio.setMinimumHeight(28)
 
         # Set default
         self.histogram_radio.setChecked(True)
@@ -1489,6 +1564,8 @@ class StatCalculator(QMainWindow):
         plot_type_group.setLayout(plot_type_layout)
         controls_layout.addWidget(plot_type_group)
 
+        controls_layout.addSpacing(15)
+
         # Column selection - Multiple modes
         self.column_selection_group = QGroupBox("Select Column(s)")
         self.column_selection_layout = QVBoxLayout()
@@ -1496,8 +1573,10 @@ class StatCalculator(QMainWindow):
         # Mode 1: Single column dropdown (for histogram, bar, etc.)
         self.single_column_widget = QWidget()
         single_layout = QVBoxLayout()
+        single_layout.setSpacing(8)
         single_layout.addWidget(QLabel("Select Column:"))
         self.plot_single_combo = QComboBox()
+        self.plot_single_combo.setMinimumHeight(35)
         self.plot_single_combo.setEnabled(False)
         single_layout.addWidget(self.plot_single_combo)
         self.single_column_widget.setLayout(single_layout)
@@ -1505,28 +1584,38 @@ class StatCalculator(QMainWindow):
         # Mode 2: Two columns (for scatter, line)
         self.two_column_widget = QWidget()
         two_layout = QVBoxLayout()
+        two_layout.setSpacing(8)
         two_layout.addWidget(QLabel("X-axis Column:"))
         self.plot_x_combo = QComboBox()
+        self.plot_x_combo.setMinimumHeight(35)
         self.plot_x_combo.setEnabled(False)
+
         two_layout.addWidget(self.plot_x_combo)
         two_layout.addWidget(QLabel("Y-axis Column:"))
+
         self.plot_y_combo = QComboBox()
+        self.plot_y_combo.setMinimumHeight(35)
         self.plot_y_combo.setEnabled(False)
         two_layout.addWidget(self.plot_y_combo)
         self.two_column_widget.setLayout(two_layout)
 
+        two_layout.addSpacing(10)
+
         # Mode 3: Multiple columns with checkboxes (for boxplot, violin, pairplot)
         self.multi_column_widget = QWidget()
         multi_layout = QVBoxLayout()
+        multi_layout.setSpacing(10)
         multi_layout.addWidget(QLabel("Select Columns (check multiple):"))
 
         # Scrollable area for checkboxes
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setMaximumHeight(200)
+        scroll.setMaximumHeight(400)
+        scroll.setMinimumHeight(150)
 
         self.column_checkboxes_widget = QWidget()
         self.column_checkboxes_layout = QVBoxLayout()
+        self.column_checkboxes_layout.setSpacing(8)
         self.column_checkboxes = {}  # Will store column name -> checkbox
         self.column_checkboxes_widget.setLayout(self.column_checkboxes_layout)
 
@@ -1535,9 +1624,12 @@ class StatCalculator(QMainWindow):
 
         # Select All / Clear All buttons
         checkbox_buttons = QHBoxLayout()
+        checkbox_buttons.setSpacing(10)
         select_all_btn = QPushButton("Select All")
+        select_all_btn.setMinimumHeight(32)
         select_all_btn.clicked.connect(self.select_all_plot_columns)
         clear_all_btn = QPushButton("Clear All")
+        clear_all_btn.setMinimumHeight(32)
         clear_all_btn.clicked.connect(self.clear_all_plot_columns)
         checkbox_buttons.addWidget(select_all_btn)
         checkbox_buttons.addWidget(clear_all_btn)
@@ -1560,19 +1652,28 @@ class StatCalculator(QMainWindow):
         self.column_selection_group.setLayout(self.column_selection_layout)
         controls_layout.addWidget(self.column_selection_group)
 
+        controls_layout.addSpacing(15)
+
+        self.column_selection_layout.setSpacing(10)
+        self.column_selection_layout.setContentsMargins(15, 20, 15, 15)
+
         # Buttons
         button_group = QGroupBox()
         button_layout = QVBoxLayout()
+        button_layout.setSpacing(10)
 
         generate_btn = QPushButton("Generate Plot")
+        generate_btn.setMinimumHeight(40)
         generate_btn.clicked.connect(self.generate_plot)
         button_layout.addWidget(generate_btn)
 
         save_btn = QPushButton("Save Plot")
+        save_btn.setMinimumHeight(40)
         save_btn.clicked.connect(self.save_plot)
         button_layout.addWidget(save_btn)
 
         clear_btn = QPushButton("Clear Plot")
+        clear_btn.setMinimumHeight(40)
         clear_btn.clicked.connect(self.clear_plot)
         button_layout.addWidget(clear_btn)
 
@@ -1585,6 +1686,7 @@ class StatCalculator(QMainWindow):
         # LEFT SIDE: Plot Display
         plot_display_widget = QWidget()
         plot_display_layout = QVBoxLayout()
+        plot_display_layout.setContentsMargins(5, 5, 5, 5)
 
         self.plot_canvas = PlotCanvas(self, width=8, height=6)
         plot_display_layout.addWidget(self.plot_canvas)
@@ -1599,7 +1701,6 @@ class StatCalculator(QMainWindow):
 
         # Initialize - show correct column selection
         self.update_column_selection_ui()
-
 
     def update_column_selection_ui(self):
         """Show/hide appropriate column selection based on plot type"""
@@ -2575,8 +2676,23 @@ class StatCalculator(QMainWindow):
                     self.dataManager.connection.rollback()
                     QMessageBox.critical(self, "Error", f"Failed to clear history:\n{str(e)}")
 
+    def setup_shortcuts(self):
+        from PySide6.QtGui import QShortcut, QKeySequence
+        QShortcut(QKeySequence("Ctrl+O"), self).activated.connect(self.open_file)
+        QShortcut(QKeySequence("Ctrl+R"), self).activated.connect(self.run_calculations)
+        QShortcut(QKeySequence("Ctrl+P"), self).activated.connect(self.generate_plot)
+
+    def make_scrollable_tab(self, content_widget: QWidget) -> QScrollArea:
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setWidget(content_widget)
+        return scroll
+
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    app.setStyleSheet(MODERN_STYLESHEET)
     window = StatCalculator()
     window.show()
     sys.exit(app.exec())
